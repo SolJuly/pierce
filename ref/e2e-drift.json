@@ -1,0 +1,11 @@
+{
+  "generatedAt": "2026-11-11T12:49:05.896Z",
+  "phase": "e2e",
+  "aiBase": "/tmp/pierce-e2e-bw3wPP",
+  "summary": {
+    "already": 57,
+    "obsolete": 5,
+    "na": 20
+  },
+  "drift": []
+}

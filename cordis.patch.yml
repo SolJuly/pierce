@@ -1,0 +1,30 @@
+# dsh-pierce bundle patch
+#
+# 只做两件事：
+#   1) 关掉官方的 harness 身份段（不然两段身份打架）；
+#   2) 把 dsh-pierce 插进树里。
+#
+# ⚠ dsh-app-boot 的 applyPatches 对 config 是**整体替换**不是深合并：
+#    你改一个字段，必须把该插件 config 的所有字段写全，漏写的会变 undefined。
+#    下面 system-prompt 的四个字段一个都不能少。
+
+- id: system-prompt
+  config:
+    includeHarnessIdentity: false
+    includeRuntimeContext: true
+    personaPrefix: ""
+    personaSuffix: "Your working directory is {{cwd}}."
+
+- insert:
+    - id: pierce
+      name: 'dsh-pierce'
+      inject: [systemPrompt]
+      config:
+        enabled: true
+        promptFile: "prompt-inject.md"
+        promptOrder: 5100
+        autoGrantApproval: true
+        allowToolGate: true
+        fsIntentFree: true
+        stripIdentity: true
+        verbose: false

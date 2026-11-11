@@ -1,0 +1,110 @@
+# 破甲 v2 —— A 层：纯配置，零源码改动
+#
+# 两处落地位置，别搞混：
+#   ① <DSH_HOME>/profiles/<web|desktop>/cordis.patch.yml   ← 宿主级（本文件 §1-§4）
+#   ② <DSH_HOME>/profiles/<web>/cordis.patch.yml 里对预设的 config 覆盖（§5）
+#
+# ⚠ dsh-app-boot 的 applyPatches 对 config 是**整体替换**不是深合并：
+#   你改某插件一个字段，必须把该插件 config 全部字段写全，漏写的会变 undefined
+#   而回落到源码默认值 —— 这就是很多人「配了却没生效」的真正原因。
+#
+# 这一层承接 dsh-purge 的 25 条补丁，宿主升级后**不需要重锚**（都是公开配置契约）。
+
+# ══════════════════════════════════════════════════════════════════
+# ① 宿主级
+# ══════════════════════════════════════════════════════════════════
+
+# ── 审批默认策略：never（对应 purge #8 / #10） ─────────────────────
+# 官方 base 里这行是 `!!js (process.env.DSH_PERMISSION_MODE ?? 'danger-full-access') === ...`
+# 直接退回静态 never，别再让环境变量决定。
+- id: approval
+  name: "@deepseek-ai/dsh-user-approval"
+  config:
+    policy: never
+
+# ── 权限预设：全部 never + 新会话直接满权限（#7 / #51） ────────────
+# 三个条目必须写全：name / description 被 UI 用，缺了会显示成 undefined。
+- id: permission
+  name: "@deepseek-ai/dsh-permission-presets"
+  config:
+    presets:
+      read-only:
+        sandbox: read-only
+        approval: never
+        name: read-only
+        description: "只读沙箱；需要加宽时自动放行，不弹窗。"
+      workspace-write:
+        sandbox: workspace-write
+        approval: never
+        name: workspace-write
+        description: "工作区内可写；需要加宽时自动放行，不弹窗。"
+      danger-full-access:
+        sandbox: danger-full-access
+        approval: never
+        name: danger-full-access
+        description: "不设沙箱；所有审批自动放行。"
+    defaultPreset: danger-full-access
+
+# ── 去掉官方身份段（#25） ──────────────────────────────────────────
+# includeHarnessIdentity=false 后 harness:identity 段不再注册。
+# personaSuffix 必须留着 —— 工作目录靠它插值 {{cwd}}，删了模型就不知道自己在哪。
+- id: system-prompt
+  config:
+    includeHarnessIdentity: false
+    includeRuntimeContext: true
+    personaPrefix: ""
+    personaSuffix: "Your working directory is {{cwd}}."
+
+# ── 会话日志不上传（#52） ─────────────────────────────────────────
+- id: session-log-deepseek
+  name: "@deepseek-ai/dsh-session-log-deepseek"
+  config:
+    enabled: false
+    maxBytes: 8388608
+
+# ══════════════════════════════════════════════════════════════════
+# ② 预设级（Web 面的工具都在预设里，宿主层是 disabled，改宿主层没用）
+#    下面这段要并进 cordis.patch.yml 里对 preset 的 config 覆盖，
+#    或者改 <DSH_HOME>/profiles/web/node_modules/@deepseek-ai/dsh-web-app/presets/*.yml
+#    三个预设（standard / ptc / cordis）都要改，否则换预设就失效。
+# ══════════════════════════════════════════════════════════════════
+
+# ── 工具面增益（#22 / #23） ────────────────────────────────────────
+# 不改宿主常量，直接给插件配更大的上限。config 里别的字段必须抄全。
+#   - id: tool-fs
+#     name: '@deepseek-ai/dsh-tool-fs'
+#     config:
+#       applyPatch: false
+#       read: true
+#       readImage: true
+#       write: true
+#       edit: true
+#       readLimit: 20000
+#       readMaxLineLength: 10000
+#       readMaxBytes: 1048576
+#       readStreamMinSize: 65536
+#
+#   - id: tool-subagent
+#     name: '@deepseek-ai/dsh-tool-subagent'
+#     config:
+#       provider: spawn
+#       toolName: subagent
+#       modelSelection: true
+#       modelDiscovery: true
+#       maxDepth: 10
+
+# ── 关掉会挡住长任务的守卫（#18 / #19） ───────────────────────────
+# repeat-tool-reminder 在宿主层（base），直接 disabled 最干净。
+- id: repeat-tool-reminder
+  disabled: true
+
+# tool-result-pruner 在预设层。想保留修剪但放宽阈值，就在预设里把这三行写全：
+#   config:
+#     thresholdChars: 65536
+#     headChars: 4096
+#     tailChars: 1024
+
+# ── 预设 yml 内的身份行（#26 / #43 / #70 / #71 / #73 / #76 / #80） ──
+# 这几条只能改预设 yml 本体（agent-instructions / persona prefix / shell 描述）。
+# 用 engine 的声明式补丁表打，不要手抄：
+#   node engine/cli.mjs apply --only 26,43,70,71,73,76,80

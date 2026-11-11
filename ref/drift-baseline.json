@@ -1,0 +1,263 @@
+{
+  "generatedAt": "2026-11-11T09:09:13.379Z",
+  "aiBase": "test/baseline",
+  "table": "purge-1.1.71",
+  "summary": {
+    "already": 8,
+    "obsolete": 5,
+    "pending": 32,
+    "partial": 16,
+    "na": 20,
+    "drift": 1
+  },
+  "drift": [
+    {
+      "id": 9,
+      "name": "APPROVAL_AUTO_GRANT",
+      "status": "partial",
+      "missing": [
+        "user-approval-invariant(absent)"
+      ],
+      "files": [
+        {
+          "file": "test/baseline/dsh-user-approval/lib/index.js",
+          "verdict": "partial"
+        },
+        {
+          "file": "test/baseline/dsh-user-approval/lib/types/index.js",
+          "verdict": "partial"
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "name": "SANDBOX_CONFINE_PASSTHROUGH",
+      "status": "partial",
+      "missing": [],
+      "files": [
+        {
+          "file": "test/baseline/dsh-sandbox-local/lib/index.js",
+          "verdict": "partial"
+        }
+      ]
+    },
+    {
+      "id": 23,
+      "name": "SUBAGENT_MAXDEPTH_RAISED",
+      "status": "partial",
+      "missing": [],
+      "files": [
+        {
+          "file": "test/baseline/dsh-subagent/lib/index.js",
+          "verdict": "partial"
+        },
+        {
+          "file": "test/baseline/dsh-tool-subagent/lib/index.js",
+          "verdict": "partial"
+        }
+      ]
+    },
+    {
+      "id": 26,
+      "name": "MINIMAL_PERSONA_PURGE",
+      "status": "partial",
+      "missing": [],
+      "files": [
+        {
+          "file": "test/baseline/dsh-web-app/presets/minimal.patch.yml",
+          "verdict": "drift"
+        },
+        {
+          "file": "test/baseline/dsh-sdk-minimal/cordis.patch.yml",
+          "verdict": "partial"
+        }
+      ]
+    },
+    {
+      "id": 29,
+      "name": "TOOL_WEB_UNTRUSTED_NEUTRAL",
+      "status": "partial",
+      "missing": [
+        "tool-web-nested(absent)"
+      ],
+      "files": [
+        {
+          "file": "test/baseline/dsh-tool-web/lib/index.js",
+          "verdict": "partial"
+        }
+      ]
+    },
+    {
+      "id": 35,
+      "name": "ESCALATION_NEVER_REJECT",
+      "status": "partial",
+      "missing": [],
+      "files": [
+        {
+          "file": "test/baseline/dsh-sandbox/lib/index.js",
+          "verdict": "partial"
+        }
+      ]
+    },
+    {
+      "id": 36,
+      "name": "TOOL_FS_ESCALATION_SCHEMA",
+      "status": "partial",
+      "missing": [],
+      "files": [
+        {
+          "file": "test/baseline/dsh-sandbox/lib/index.js",
+          "verdict": "partial"
+        }
+      ]
+    },
+    {
+      "id": 37,
+      "name": "SUBAGENT_SCOPE_LOCK_NEUTRAL",
+      "status": "partial",
+      "missing": [],
+      "files": [
+        {
+          "file": "test/baseline/dsh-subagent/lib/index.js",
+          "verdict": "partial"
+        },
+        {
+          "file": "test/baseline/dsh-subagent/lib/types/child-agent.js",
+          "verdict": "partial"
+        }
+      ]
+    },
+    {
+      "id": 42,
+      "name": "SETTINGS_LEGACY_API",
+      "status": "partial",
+      "missing": [],
+      "files": [
+        {
+          "file": "test/baseline/dsh-settings/lib/index.js",
+          "verdict": "partial"
+        }
+      ]
+    },
+    {
+      "id": 43,
+      "name": "WEB_PRESET_IDENTITY_STRIP",
+      "status": "partial",
+      "missing": [],
+      "files": [
+        {
+          "file": "test/baseline/dsh-web-app/presets/standard.patch.yml",
+          "verdict": "partial"
+        },
+        {
+          "file": "test/baseline/dsh-web-app/presets/ptc.patch.yml",
+          "verdict": "partial"
+        },
+        {
+          "file": "test/baseline/dsh-web-app/presets/cordis.patch.yml",
+          "verdict": "partial"
+        },
+        {
+          "file": "test/baseline/dsh-web-app/presets/minimal.patch.yml",
+          "verdict": "partial"
+        }
+      ]
+    },
+    {
+      "id": 52,
+      "name": "SESSION_LOG_UPLOAD_DEFAULT_OFF",
+      "status": "partial",
+      "missing": [],
+      "files": [
+        {
+          "file": "test/baseline/dsh-session-log-deepseek/lib/index.js",
+          "verdict": "partial"
+        },
+        {
+          "file": "test/baseline/dsh-session-log-deepseek/lib/types/index.js",
+          "verdict": "partial"
+        }
+      ]
+    },
+    {
+      "id": 56,
+      "name": "REWIND_HIDE_CUT_ONLY",
+      "status": "partial",
+      "missing": [],
+      "files": [
+        {
+          "file": "test/baseline/dsh-client-ui-conversation/lib/client.js",
+          "verdict": "partial"
+        }
+      ]
+    },
+    {
+      "id": 69,
+      "name": "MODEL_STREAM_RELEASE",
+      "status": "partial",
+      "missing": [],
+      "files": [
+        {
+          "file": "test/baseline/dsh-llm-deepseek/lib/index.js",
+          "verdict": "partial"
+        }
+      ]
+    },
+    {
+      "id": 70,
+      "name": "PRESET_SHELL_NETWORK",
+      "status": "partial",
+      "missing": [],
+      "files": [
+        {
+          "file": "test/baseline/dsh-web-app/presets/minimal.patch.yml",
+          "verdict": "partial"
+        },
+        {
+          "file": "test/baseline/dsh-sdk-minimal/cordis.patch.yml",
+          "verdict": "partial"
+        }
+      ]
+    },
+    {
+      "id": 86,
+      "name": "SESSION_STEER_ALWAYS_FOLLOWUP",
+      "status": "partial",
+      "missing": [],
+      "files": [
+        {
+          "file": "test/baseline/dsh-api-session-controller/lib/index.js",
+          "verdict": "partial"
+        },
+        {
+          "file": "test/baseline/dsh-agent-loop/lib/index.js",
+          "verdict": "partial"
+        }
+      ]
+    },
+    {
+      "id": 87,
+      "name": "HUNG_PROMPT_LF_NEEDLE",
+      "status": "partial",
+      "missing": [],
+      "files": [
+        {
+          "file": "test/baseline/dsh-agent-loop/lib/index.js",
+          "verdict": "partial"
+        }
+      ]
+    },
+    {
+      "id": 88,
+      "name": "HUNG_PROMPT_STRICT_NEEDLE",
+      "status": "drift",
+      "missing": [],
+      "files": [
+        {
+          "file": "test/baseline/dsh-agent-loop/lib/index.js",
+          "verdict": "drift"
+        }
+      ]
+    }
+  ]
+}

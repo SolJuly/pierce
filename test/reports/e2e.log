@@ -1,0 +1,18 @@
+工作目录 /tmp/pierce-e2e-bw3wPP
+
+[1] 原貌判定: already=8 obsolete=5 pending=32 partial=16 na=20 drift=1
+
+[2] apply: already=9 obsolete=5 applied=48 na=20  (备份 34 文件)
+
+[3] 打后判定: already=57 obsolete=5 na=20
+
+[4] 幂等重跑: already=57 obsolete=5 na=20
+
+[5] 语法: 38 个 JS 目标，失败 0
+
+[6] revert: 还原 34 文件，跳过 10
+
+[7] 回滚后判定: already=8 obsolete=5 pending=32 partial=16 na=20 drift=1
+    与原貌一致: 是
+
+[8] 打后仍漂移 0 条

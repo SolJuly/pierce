@@ -1,0 +1,11 @@
+{
+  "source": { "pkg": "dsh-pierce", "layer": "obsolete", "target": "dsh 0.2.2-rc.1" },
+  "note": "这些条目不是「锚点打不中」，而是「目标状态已经不需要动手」。留着说明理由，避免每次 status 都当成故障。",
+  "obsolete": {
+    "5": "0.2.2 的 NEVER_SENTENCE / ASK_SENTENCE 已写成自动放行口径；本插件还会在 system-prompt/assemble 阶段再盖一次，源码不用动",
+    "21": "宿主 base 里已无「[dsh-purge] bash timeout raised」标记，该延长本来就不存在，无需还原",
+    "24": "standard / ptc / cordis 三个预设的 tool-web 已是 fetch: true，无需再改",
+    "54": "0.2.2 的 FILE_REFERENCE_PROMPT 已无「Do not call present」句，该禁止不存在",
+    "80": "minimal.patch.yml 已无「[dsh-purge] minimal fs/web tool parity」追加行，无需还原"
+  }
+}

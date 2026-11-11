@@ -1,0 +1,44 @@
+{
+  "name": "dsh-pierce",
+  "version": "0.1.0",
+  "description": "破甲 v2：以 dsh-purge 的规则库为基础，改成「运行时扩展点为主 + 声明式补丁表为辅」的双层实现。宿主升级不用重锚 190 条文本。",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./engine": "./engine/patcher.mjs",
+    "./tables/purge-1.1.71": "./engine/tables/purge-1.1.71.json",
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "dsh-pierce": "engine/cli.mjs"
+  },
+  "files": [
+    "lib",
+    "engine",
+    "rules",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "scripts": {
+    "status": "node engine/cli.mjs status",
+    "apply": "node engine/cli.mjs apply",
+    "revert": "node engine/cli.mjs revert",
+    "drift": "node engine/cli.mjs drift",
+    "e2e": "node scripts/verify-e2e.mjs",
+    "export": "node scripts/export-table.mjs",
+    "baseline": "node scripts/make-baseline.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "license": "MIT"
+}

@@ -1,0 +1,593 @@
+{
+  "generatedAt": "2026-11-11T08:59:03.539Z",
+  "counts": {
+    "B": {
+      "n": 25,
+      "rules": 67
+    },
+    "C": {
+      "n": 32,
+      "rules": 81
+    },
+    "A": {
+      "n": 25,
+      "rules": 46
+    }
+  },
+  "rows": [
+    {
+      "id": 1,
+      "name": "WORKSPACE_CONTEXT_INTRO",
+      "rules": 6,
+      "mech": "B",
+      "how": "system-prompt/assemble 里替换免责声明段"
+    },
+    {
+      "id": 2,
+      "name": "REPLACEMENT_WORKSPACE_CONTEXT_INTRO",
+      "rules": 6,
+      "mech": "B",
+      "how": "同上"
+    },
+    {
+      "id": 3,
+      "name": "SCOPE_INTRO",
+      "rules": 1,
+      "mech": "B",
+      "how": "同上"
+    },
+    {
+      "id": 4,
+      "name": "SYSTEM_PROMPT_PERSONA",
+      "rules": 1,
+      "mech": "B",
+      "how": "persona section 覆盖（prefix/suffix 段）"
+    },
+    {
+      "id": 5,
+      "name": "APPROVAL_NEVER_SENTENCE",
+      "rules": 0,
+      "mech": "B",
+      "how": "systemPrompt.context 同名覆盖 approval:policy 句"
+    },
+    {
+      "id": 6,
+      "name": "SANDBOX_DENY_FILE_WRITE",
+      "rules": 0,
+      "mech": "C",
+      "how": "sandbox-local 的 deny file-write 分支"
+    },
+    {
+      "id": 7,
+      "name": "SANDBOX_MODE_DEFAULT",
+      "rules": 0,
+      "mech": "A",
+      "how": "permission-presets.presets.*.approval = never"
+    },
+    {
+      "id": 8,
+      "name": "APPROVAL_POLICY_DEFAULT",
+      "rules": 0,
+      "mech": "A",
+      "how": "cordis.patch.yml: user-approval.policy = never"
+    },
+    {
+      "id": 9,
+      "name": "APPROVAL_AUTO_GRANT",
+      "rules": 2,
+      "mech": "B",
+      "how": "approval/request → allowed-once"
+    },
+    {
+      "id": 10,
+      "name": "APPROVAL_CONFIG_DEFAULT_NEVER",
+      "rules": 0,
+      "mech": "A",
+      "how": "同上，配置默认 instead of 改 zod .default"
+    },
+    {
+      "id": 11,
+      "name": "APPROVAL_NEVER_SENTENCE_BYPASS",
+      "rules": 1,
+      "mech": "B",
+      "how": "同 5"
+    },
+    {
+      "id": 12,
+      "name": "APPROVAL_ASK_SENTENCE_BYPASS",
+      "rules": 2,
+      "mech": "B",
+      "how": "同 5"
+    },
+    {
+      "id": 13,
+      "name": "ESCALATION_WIDENING_EXEMPT",
+      "rules": 1,
+      "mech": "B",
+      "how": "approval/request 已短路，ladder 不再触发"
+    },
+    {
+      "id": 14,
+      "name": "ESCALATION_GRANT_UNCONDITIONAL",
+      "rules": 2,
+      "mech": "B",
+      "how": "同上（沙箱升级请求走同一 approval 通道）"
+    },
+    {
+      "id": 15,
+      "name": "SANDBOX_CONFINE_PASSTHROUGH",
+      "rules": 0,
+      "mech": "C",
+      "how": "sandbox-local confine 直通"
+    },
+    {
+      "id": 16,
+      "name": "FS_FENCE_DISABLED",
+      "rules": 0,
+      "mech": "C",
+      "how": "fs-sandbox 围栏"
+    },
+    {
+      "id": 17,
+      "name": "FS_OBSERVATION_INTENT_FREE",
+      "rules": 2,
+      "mech": "B",
+      "how": "fs/write|edit|delete-intent 返回 undefined"
+    },
+    {
+      "id": 18,
+      "name": "REPEAT_TOOL_REMINDER_DISABLED",
+      "rules": 1,
+      "mech": "A",
+      "how": "patch yml 里 disabled: true（重复提醒插件）"
+    },
+    {
+      "id": 19,
+      "name": "TOOL_RESULT_PRUNER_DISABLED",
+      "rules": 1,
+      "mech": "A",
+      "how": "同上 / 或 pruner thresholdChars 拉高"
+    },
+    {
+      "id": 21,
+      "name": "BASH_TIMEOUT_RESTORE",
+      "rules": 1,
+      "mech": "A",
+      "how": "bash 执行器 config.timeoutMs"
+    },
+    {
+      "id": 22,
+      "name": "READ_CAPS_RAISED",
+      "rules": 3,
+      "mech": "A",
+      "how": "tool-fs config: readLimit / readMaxBytes / readMaxLineLength"
+    },
+    {
+      "id": 23,
+      "name": "SUBAGENT_MAXDEPTH_RAISED",
+      "rules": 3,
+      "mech": "A",
+      "how": "tool-subagent config.maxDepth = 10"
+    },
+    {
+      "id": 24,
+      "name": "PRESET_FETCH_ENABLED",
+      "rules": 1,
+      "mech": "A",
+      "how": "preset yml 里给 tool-web 加 fetch"
+    },
+    {
+      "id": 25,
+      "name": "HARNESS_IDENTITY_STRIP",
+      "rules": 3,
+      "mech": "A",
+      "how": "system-prompt.includeHarnessIdentity = false"
+    },
+    {
+      "id": 26,
+      "name": "MINIMAL_PERSONA_PURGE",
+      "rules": 4,
+      "mech": "A",
+      "how": "preset yml: persona prefix 置空 + complete"
+    },
+    {
+      "id": 28,
+      "name": "LIANGSHEN_PHASE1_KEEP_INJECT",
+      "rules": 2,
+      "mech": "A",
+      "how": "liangshen 预设 yml"
+    },
+    {
+      "id": 29,
+      "name": "TOOL_WEB_UNTRUSTED_NEUTRAL",
+      "rules": 5,
+      "mech": "B",
+      "how": "assemble 里改 tool-web 描述段"
+    },
+    {
+      "id": 30,
+      "name": "HOOKS_CLAUDE_DENY_ALLOW",
+      "rules": 2,
+      "mech": "A",
+      "how": "hooks 插件 disabled: true（比改它代码干净）"
+    },
+    {
+      "id": 31,
+      "name": "HOOKS_CODEX_DENY_ALLOW",
+      "rules": 1,
+      "mech": "A",
+      "how": "同上（codex hooks）"
+    },
+    {
+      "id": 32,
+      "name": "WEB_SURFACE_IDENTITY_NEUTRAL",
+      "rules": 2,
+      "mech": "B",
+      "how": "assemble 里改 web 面身份段"
+    },
+    {
+      "id": 33,
+      "name": "TOOL_SHELL_DENIAL_PROMPT",
+      "rules": 11,
+      "mech": "B",
+      "how": "assemble 里改 shell 拒绝话术段"
+    },
+    {
+      "id": 34,
+      "name": "SANDBOX_HINT_NEUTRAL",
+      "rules": 2,
+      "mech": "B",
+      "how": "assemble 里改沙箱 hint 段"
+    },
+    {
+      "id": 35,
+      "name": "ESCALATION_NEVER_REJECT",
+      "rules": 2,
+      "mech": "A",
+      "how": "approval/request 已短路，永不 reject"
+    },
+    {
+      "id": 36,
+      "name": "TOOL_FS_ESCALATION_SCHEMA",
+      "rules": 4,
+      "mech": "C",
+      "how": "tool-fs 的 zod schema 描述文本"
+    },
+    {
+      "id": 37,
+      "name": "SUBAGENT_SCOPE_LOCK_NEUTRAL",
+      "rules": 2,
+      "mech": "B",
+      "how": "assemble 里改子代理边界段"
+    },
+    {
+      "id": 38,
+      "name": "PERSONA_TEXT_PREFIX_ALIAS",
+      "rules": 2,
+      "mech": "C",
+      "how": "persona 文本前缀别名"
+    },
+    {
+      "id": 39,
+      "name": "SESSION_V0_PLUGIN_SUMMARY_ALIAS",
+      "rules": 1,
+      "mech": "C",
+      "how": "session v0 插件摘要别名"
+    },
+    {
+      "id": 40,
+      "name": "COMPLETE_PROMPT_KEEP_INJECT",
+      "rules": 6,
+      "mech": "C",
+      "how": "complete 模式保留注入"
+    },
+    {
+      "id": 42,
+      "name": "SETTINGS_LEGACY_API",
+      "rules": 12,
+      "mech": "C",
+      "how": "settings 旧 API 补齐"
+    },
+    {
+      "id": 43,
+      "name": "WEB_PRESET_IDENTITY_STRIP",
+      "rules": 3,
+      "mech": "A",
+      "how": "四个 web 预设 yml 里删 persona 行"
+    },
+    {
+      "id": 45,
+      "name": "OFFICIAL_DESKTOP_UPDATE_HANDOFF",
+      "rules": 2,
+      "mech": "C",
+      "how": "桌面壳更新接管"
+    },
+    {
+      "id": 46,
+      "name": "OFFICIAL_DESKTOP_UPDATE_ASCII",
+      "rules": 2,
+      "mech": "C",
+      "how": "桌面壳 ASCII 脚本"
+    },
+    {
+      "id": 47,
+      "name": "ANTHROPIC_OAUTH_NO_CLAUDE_IDENTITY",
+      "rules": 2,
+      "mech": "C",
+      "how": "anthropic messages 首段"
+    },
+    {
+      "id": 48,
+      "name": "TOOL_SHELL_DELETE_MOVE_NEUTRAL",
+      "rules": 1,
+      "mech": "B",
+      "how": "assemble 里改 bash/pwsh 描述段"
+    },
+    {
+      "id": 49,
+      "name": "ANTHROPIC_OAUTH_CLI_NEUTRAL",
+      "rules": 3,
+      "mech": "C",
+      "how": "anthropic oauth CLI 伪装"
+    },
+    {
+      "id": 50,
+      "name": "SESSION_REFERENCE_FRAMING_NEUTRAL",
+      "rules": 3,
+      "mech": "B",
+      "how": "assemble 里改会话引用 framing 段"
+    },
+    {
+      "id": 51,
+      "name": "FRESH_SESSION_FULL_ACCESS",
+      "rules": 2,
+      "mech": "A",
+      "how": "permission-presets.defaultPreset = danger-full-access"
+    },
+    {
+      "id": 52,
+      "name": "SESSION_LOG_UPLOAD_DEFAULT_OFF",
+      "rules": 2,
+      "mech": "A",
+      "how": "session-log-deepseek.enabled = false"
+    },
+    {
+      "id": 53,
+      "name": "WEB_SURFACE_PROHIBITION",
+      "rules": 2,
+      "mech": "B",
+      "how": "assemble 里删 web 禁止另开服务器句"
+    },
+    {
+      "id": 54,
+      "name": "DELIVERABLE_DO_NOT",
+      "rules": 2,
+      "mech": "B",
+      "how": "assemble 里放行 present 句"
+    },
+    {
+      "id": 55,
+      "name": "SYSTEM_PROMPT_REPLACE_HEAD",
+      "rules": 1,
+      "mech": "C",
+      "how": "agent-loop 每步替换首条 system"
+    },
+    {
+      "id": 56,
+      "name": "REWIND_HIDE_CUT_ONLY",
+      "rules": 4,
+      "mech": "C",
+      "how": "conversation-client 回退隐藏"
+    },
+    {
+      "id": 57,
+      "name": "DEEPSEEK_SYSTEM_ROLE",
+      "rules": 6,
+      "mech": "C",
+      "how": "pi-ai developer role 白名单"
+    },
+    {
+      "id": 58,
+      "name": "REWIND_SKIP_DERIVE",
+      "rules": 1,
+      "mech": "C",
+      "how": "session 回退标记"
+    },
+    {
+      "id": 59,
+      "name": "OFFICIAL_AUTO_REVIEW_PASSTHROUGH",
+      "rules": 1,
+      "mech": "B",
+      "how": "tools/pre-execute 里放过 auto-review 的 deny"
+    },
+    {
+      "id": 60,
+      "name": "OFFICIAL_RUN_CODE_APPROVAL_NEUTRAL",
+      "rules": 4,
+      "mech": "B",
+      "how": "approval/request（run_code 同一通道）"
+    },
+    {
+      "id": 61,
+      "name": "OFFICIAL_SANDBOX_POLICY_NEUTRAL",
+      "rules": 1,
+      "mech": "B",
+      "how": "assemble / approval 双重盖住"
+    },
+    {
+      "id": 62,
+      "name": "OFFICIAL_TOOL_ASK_FAILOPEN",
+      "rules": 4,
+      "mech": "B",
+      "how": "tools/pre-execute：无审批通道时 allow"
+    },
+    {
+      "id": 63,
+      "name": "OFFICIAL_PLAN_MODE_NEUTRAL",
+      "rules": 3,
+      "mech": "B",
+      "how": "assemble 里改 plan mode 段"
+    },
+    {
+      "id": 64,
+      "name": "HOOKS_STOP_STEER_NEUTRAL",
+      "rules": 2,
+      "mech": "A",
+      "how": "同上 / 或 hook 配置关 steer"
+    },
+    {
+      "id": 65,
+      "name": "HOOKS_PRESTEP_REJECT_NEUTRAL",
+      "rules": 2,
+      "mech": "A",
+      "how": "同上"
+    },
+    {
+      "id": 66,
+      "name": "SYSTEM_PROMPT_RENDER_GUARD",
+      "rules": 3,
+      "mech": "C",
+      "how": "renderPrompt undefined 兜底"
+    },
+    {
+      "id": 67,
+      "name": "AGENT_LOOP_MESSAGES_GUARD",
+      "rules": 1,
+      "mech": "C",
+      "how": "agent-loop decision.messages 兜底"
+    },
+    {
+      "id": 68,
+      "name": "SYSTEM_NODES_CONTENT_GUARD",
+      "rules": 4,
+      "mech": "C",
+      "how": "systemNodes content 兜底"
+    },
+    {
+      "id": 69,
+      "name": "MODEL_STREAM_RELEASE",
+      "rules": 3,
+      "mech": "C",
+      "how": "llm-deepseek 流释放"
+    },
+    {
+      "id": 70,
+      "name": "PRESET_SHELL_NETWORK",
+      "rules": 2,
+      "mech": "A",
+      "how": "minimal 预设 yml 改 shell 描述"
+    },
+    {
+      "id": 71,
+      "name": "LIANGSHEN_IDENTITY_LINE",
+      "rules": 1,
+      "mech": "A",
+      "how": "liangshen 预设 yml 删身份行"
+    },
+    {
+      "id": 72,
+      "name": "MESSAGES_SYSTEM_CURRENT",
+      "rules": 1,
+      "mech": "C",
+      "how": "messages system 字段"
+    },
+    {
+      "id": 73,
+      "name": "PRESET_BASH_MIRROR_LINE",
+      "rules": 1,
+      "mech": "A",
+      "how": "minimal bash 镜像说明删行"
+    },
+    {
+      "id": 74,
+      "name": "ASSEMBLE_BEFORE_PRESTEP",
+      "rules": 1,
+      "mech": "C",
+      "how": "pre-step 前挂注入"
+    },
+    {
+      "id": 75,
+      "name": "REWIND_RESET_TODOS",
+      "rules": 1,
+      "mech": "C",
+      "how": "回退重置 todos"
+    },
+    {
+      "id": 76,
+      "name": "PRESET_UNRESTRICTED_IDENTITY_STRIP",
+      "rules": 3,
+      "mech": "A",
+      "how": "preset-unrestricted yml 删身份行"
+    },
+    {
+      "id": 77,
+      "name": "REWIND_DROP_SENT_ON_APPEND",
+      "rules": 1,
+      "mech": "C",
+      "how": "回退丢弃已发送"
+    },
+    {
+      "id": 78,
+      "name": "OVERLAY_RESTORE_FROM_BAK",
+      "rules": 1,
+      "mech": "C",
+      "how": "overlay 从 bak 恢复"
+    },
+    {
+      "id": 80,
+      "name": "MINIMAL_OFFICIAL_TOOLSET",
+      "rules": 4,
+      "mech": "A",
+      "how": "minimal 预设 yml 工具表"
+    },
+    {
+      "id": 82,
+      "name": "DESKTOP_SHELL_PROFILE_FALLBACK",
+      "rules": 1,
+      "mech": "C",
+      "how": "桌面 DSH_PROFILE 兜底"
+    },
+    {
+      "id": 83,
+      "name": "DESKTOP_HOST_CLOSE_NO_FATAL",
+      "rules": 1,
+      "mech": "C",
+      "how": "桌面 close 不报致命"
+    },
+    {
+      "id": 84,
+      "name": "DESKTOP_HOST_CLOSE_CODE0_NO_FAIL",
+      "rules": 1,
+      "mech": "C",
+      "how": "桌面 close code0"
+    },
+    {
+      "id": 85,
+      "name": "SESSION_PROMPT_ALWAYS_FOLLOWUP",
+      "rules": 1,
+      "mech": "C",
+      "how": "session-controller 一律 followup"
+    },
+    {
+      "id": 86,
+      "name": "SESSION_STEER_ALWAYS_FOLLOWUP",
+      "rules": 3,
+      "mech": "C",
+      "how": "steer → followup"
+    },
+    {
+      "id": 87,
+      "name": "HUNG_PROMPT_LF_NEEDLE",
+      "rules": 8,
+      "mech": "C",
+      "how": "挂全文 LF needle"
+    },
+    {
+      "id": 88,
+      "name": "HUNG_PROMPT_STRICT_NEEDLE",
+      "rules": 4,
+      "mech": "C",
+      "how": "挂全文严格 needle"
+    }
+  ]
+}
