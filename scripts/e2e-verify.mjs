@@ -40,7 +40,28 @@ import { fileURLToPath } from "node:url";
 //   logs/                日志
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const CLEAN_ROOT = process.env.DSH_CLEAN_ROOT || "/opt/dsh-clean";
-const E2E_DIR = process.env.PIERCE_E2E_DIR || path.join(REPO_ROOT, ".e2e-sandbox");
+
+/**
+ * 定位隔离沙箱。优先级：
+ *   1. $PIERCE_E2E_DIR（显式指定）
+ *   2. $HOME/.pierce-e2e（约定俗成的家目录位置）
+ *   3. 仓库内 .e2e-sandbox（最后兜底，且该目录被 .gitignore 排除）
+ * 选第一个「已经存在 home/profileName」的候选，全都没有就用候选 3 并给出提示。
+ */
+function resolveE2EDir(profile) {
+  const candidates = [
+    process.env.PIERCE_E2E_DIR,
+    path.join(os.homedir(), ".pierce-e2e"),
+    path.join(REPO_ROOT, ".e2e-sandbox"),
+  ].filter(Boolean);
+  for (const dir of candidates) {
+    if (fs.existsSync(path.join(dir, "home", "profiles", profile))) return { dir, found: true };
+  }
+  return { dir: candidates[candidates.length - 1], found: false };
+}
+
+const PROFILE = process.env.PIERCE_E2E_PROFILE || "e2e";
+const { dir: E2E_DIR, found: E2E_READY } = resolveE2EDir(PROFILE);
 
 const E2E = {
   cleanDsh: path.join(CLEAN_ROOT, "node_modules/.bin/dsh"),
@@ -49,7 +70,7 @@ const E2E = {
   logs: path.join(E2E_DIR, "logs"),
   mockScript: path.join(REPO_ROOT, "scripts/mock-llm.mjs"),
   probeDir: path.join(E2E_DIR, "ask-gate-probe"),
-  profile: process.env.PIERCE_E2E_PROFILE || "e2e",
+  profile: PROFILE,
   mockPort: Number(process.env.PIERCE_MOCK_PORT || 9911),
   proofBash: path.join(os.tmpdir(), "pierce-e2e-proof"),
   proofFs: path.join(E2E_DIR, "work/proof-fs-edit.txt"),
@@ -270,7 +291,16 @@ const main = async () => {
   console.log(`profile  : ${E2E.profile}`);
 
   if (!fs.existsSync(E2E.cleanDsh)) {
-    console.error("❌ 找不到纯净宿主，先跑 setup-clean-host.sh");
+    console.error(`❌ 找不到纯净宿主：${E2E.cleanDsh}`);
+    console.error("   准备一个官方原样安装，然后 export DSH_CLEAN_ROOT=/path/to/that/install");
+    process.exit(2);
+  }
+  if (!E2E_READY) {
+    console.error(`❌ 找不到隔离沙箱：${E2E.home}/profiles/${E2E.profile}`);
+    console.error("   需要的结构：");
+    console.error(`     ${E2E_DIR}/home/profiles/${E2E.profile}/cordis.patch.yml   （挂 dsh-pierce + mock provider）`);
+    console.error(`     ${E2E_DIR}/work/    ${E2E_DIR}/logs/`);
+    console.error("   然后用 export PIERCE_E2E_DIR=<上面那个目录> 指定。");
     process.exit(2);
   }
 
