@@ -18,3 +18,6 @@ test/refusal/purge-equivalent.md
 *.bak
 *.bak.*
 .DS_Store
+
+# 官方源码基线副本（2.7MB，可用 scripts/make-baseline.mjs 重新生成）
+test/baseline/
