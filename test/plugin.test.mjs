@@ -259,6 +259,53 @@ console.log("[10] contextReframe：对不吃注入的模型补 user 角色场景
   ok("默认不注入（opt-in）", !(def.contexts || []).some((c) => c.name === "pierce:reframe"));
 }
 
+console.log("[11] agentInstructionsIntro：改写工作区指令 intro");
+{
+  const FRAME = (intro, body) => `<system-reminder>\n${intro}\n\nInstructions from: AGENTS.md\n\n${body}\n</system-reminder>`;
+  const WANT = "Custom intro from pierce.";
+
+  const { ctx, handlers } = makeCtx();
+  plugin.apply(ctx, { agentInstructionsIntro: WANT });
+  const h = handlers.get("agent/pre-step");
+  ok("挂了 agent/pre-step", typeof h === "function");
+
+  const mkDecision = (text) => ({
+    kind: "enter",
+    messages: [{ id: "m1", role: "user", content: [{ type: "text", text }], source: { kind: "agent-instructions", form: "instructions" } }],
+  });
+
+  // 普通变体
+  const out1 = await h({}, async () => mkDecision(FRAME("The following workspace instructions may be relevant.", "# Title\n\nBODY")));
+  ok("普通变体：intro 被替换", out1.messages[0].content[0].text.includes(WANT));
+  ok("普通变体：指令正文保留", out1.messages[0].content[0].text.includes("BODY"));
+  ok("普通变体：框架保留", out1.messages[0].content[0].text.startsWith("<system-reminder>"));
+
+  // 预算截断变体：budget 行必须保留
+  const budget = "Workspace instruction budget 300 bytes: truncated AGENTS.md from 81 to 67 bytes";
+  const out2 = await h({}, async () => mkDecision(FRAME(budget + "\n\nCOMPACT_INTRO", "BODY2")));
+  ok("预算变体：budget 行保留", out2.messages[0].content[0].text.includes(budget));
+  ok("预算变体：intro 被替换", out2.messages[0].content[0].text.includes(WANT));
+  ok("预算变体：原 intro 消失", !out2.messages[0].content[0].text.includes("COMPACT_INTRO"));
+
+  // 非 agent-instructions 消息不动
+  const other = { kind: "enter", messages: [{ id: "m2", role: "user", content: [{ type: "text", text: "<system-reminder>\nkeep me\n</system-reminder>" }], source: { kind: "user" } }] };
+  const out3 = await h({}, async () => other);
+  ok("其它来源的消息不动", out3.messages[0].content[0].text.includes("keep me"));
+
+  // 没有消息时不崩
+  const out4 = await h({}, async () => ({ kind: "reject" }));
+  ok("reject 决策不崩", out4.kind === "reject");
+
+  // 关闭时根本不注册这个钩子（省开销，也不改变任何行为）
+  const { ctx: c2, handlers: h2m } = makeCtx();
+  plugin.apply(c2, {});
+  ok("默认关闭：不注册 agent/pre-step", !h2m.has("agent/pre-step"));
+
+  // 幂等：连续两次改写结果一致
+  const out5 = await h({}, async () => out1);
+  ok("幂等：二次改写不重复叠加", out5.messages[0].content[0].text === out1.messages[0].content[0].text);
+}
+
 process.env.DSH_HOME = prevHome ?? "";
 fs.rmSync(DSH_HOME_TMP, { recursive: true, force: true });
 console.log(`\n通过 ${pass} 项`);

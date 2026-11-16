@@ -174,6 +174,16 @@ const server = http.createServer((req, res) => {
     const hasToolResult = roles.includes("tool");
     const stream = payload.stream !== false;
 
+    // MOCK_DUMP_BODY=<path> 时把完整请求体落盘，供结构验证用。
+    if (process.env.MOCK_DUMP_BODY) {
+      // 会话标题这类辅助请求先来，主对话后来。按顺序编号，方便取最后一条。
+      try {
+        const dir = process.env.MOCK_DUMP_BODY;
+        fs.mkdirSync(dir, { recursive: true });
+        const n = fs.readdirSync(dir).filter((f) => f.endsWith(".json")).length;
+        fs.writeFileSync(`${dir}/${String(n).padStart(3, "0")}.json`, JSON.stringify({ model: body?.model, messages: msgs }, null, 2));
+      } catch { /* 落盘失败不影响服务 */ }
+    }
     log("POST", {
       url: req.url,
       model: payload.model,
