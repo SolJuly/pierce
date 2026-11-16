@@ -15,6 +15,7 @@
  *   node test/refusal/runner.mjs --concurrency 4
  */
 import fs from "node:fs";
+import { CREDENTIALS_FILE } from "./credentials-path.mjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -36,12 +37,12 @@ const PROVIDER = arg("provider", "deepseek");
 const PROVIDERS = {
   deepseek: {
     base: "https://api.deepseek.com/v1",
-    key: () => fs.readFileSync("/root/.dsh/.credentials.yaml", "utf8").match(/DEEPSEEK_API_KEY:\s*(sk-\S+)/)[1],
+    key: () => fs.readFileSync(CREDENTIALS_FILE, "utf8").match(/DEEPSEEK_API_KEY:\s*(sk-\S+)/)[1],
     model: MODEL,
   },
   zai: {
     base: "https://api.z.ai/api/paas/v4",
-    key: () => fs.readFileSync("/root/.dsh/.credentials.yaml", "utf8").match(/ZAI_API_KEY:\s*(\S+)/)[1],
+    key: () => fs.readFileSync(CREDENTIALS_FILE, "utf8").match(/ZAI_API_KEY:\s*(\S+)/)[1],
     model: MODEL,
   },
   // 插件自带的免费通道（Kilo 网关，无需 key、不计费、可反复跑）

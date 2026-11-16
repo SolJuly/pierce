@@ -27,7 +27,9 @@
     "drift": "node engine/cli.mjs drift",
     "e2e": "node scripts/verify-e2e.mjs",
     "export": "node scripts/export-table.mjs",
-    "baseline": "node scripts/make-baseline.mjs"
+    "baseline": "node scripts/make-baseline.mjs",
+    "e2e:p0": "node scripts/e2e-verify.mjs",
+    "e2e:mock": "node scripts/mock-llm.mjs"
   },
   "engines": {
     "node": ">=18"

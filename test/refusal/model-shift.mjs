@@ -10,6 +10,7 @@
  * 若 C < B，说明「选模型」比「写提示词」更划算 —— 这决定下一步方向。
  */
 import fs from "node:fs";
+import { CREDENTIALS_FILE } from "./credentials-path.mjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { classify } from "./classify.mjs";
@@ -17,7 +18,7 @@ import { classify } from "./classify.mjs";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(here, "../..");
 const N = Number(process.argv[process.argv.indexOf("--n") + 1] || 3);
-const KEY = fs.readFileSync("/root/.dsh/.credentials.yaml", "utf8").match(/DEEPSEEK_API_KEY:\s*(sk-\S+)/)[1];
+const KEY = fs.readFileSync(CREDENTIALS_FILE, "utf8").match(/DEEPSEEK_API_KEY:\s*(sk-\S+)/)[1];
 const FULL = fs.readFileSync(path.join(ROOT, "test/refusal/prompt-under-test.md"), "utf8");
 const probes = JSON.parse(fs.readFileSync(path.join(here, "probe-set.json"), "utf8")).probes;
 

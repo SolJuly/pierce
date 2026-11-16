@@ -10,6 +10,7 @@
  *   +quote   —— 原文全文，但外部包一层引用（测「被识别为注入」的影响）
  */
 import fs from "node:fs";
+import { CREDENTIALS_FILE } from "./credentials-path.mjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -19,7 +20,7 @@ const args = process.argv.slice(2);
 const N = Number(args[args.indexOf("--n") + 1] || 3);
 const MODEL = "deepseek-flash";
 
-const KEY = fs.readFileSync("/root/.dsh/.credentials.yaml", "utf8").match(/DEEPSEEK_API_KEY:\s*(sk-\S+)/)[1];
+const KEY = fs.readFileSync(CREDENTIALS_FILE, "utf8").match(/DEEPSEEK_API_KEY:\s*(sk-\S+)/)[1];
 const full = fs.readFileSync(path.join(ROOT, "test/refusal/prompt-under-test.md"), "utf8");
 const probes = JSON.parse(fs.readFileSync(path.join(here, "probe-set.json"), "utf8")).probes;
 

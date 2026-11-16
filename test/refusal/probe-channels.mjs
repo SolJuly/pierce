@@ -3,6 +3,8 @@
  * 只发一句最小请求，不消耗有意义额度。
  */
 import fs from "node:fs";
+import os from "node:os";
+import { CREDENTIALS_FILE } from "./credentials-path.mjs";
 
 /** 只取 refs 段里的 key: value，不引第三方 yaml（本目录没有 node_modules）。 */
 function readRefs(file) {
@@ -21,8 +23,9 @@ function readRefs(file) {
   return out;
 }
 
-const creds = readRefs("/root/.dsh/.credentials.yaml");
-const state = JSON.parse(fs.readFileSync("/root/.dsh/channel-pack/state.json", "utf8"));
+const creds = readRefs(CREDENTIALS_FILE);
+const DSH_HOME_DIR = process.env.DSH_HOME || path.join(os.homedir(), ".dsh");
+const state = JSON.parse(fs.readFileSync(path.join(DSH_HOME_DIR, "channel-pack/state.json"), "utf8"));
 const accounts = state.accounts.filter((a) => a.enabled);
 
 const UA = "opencode/1.0.0";

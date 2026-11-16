@@ -1,0 +1,176 @@
+{
+  "version": 1,
+  "note": "基于实测的模型路由建议。数据来源：docs/双模型对比结论.md（n=5 × 两轮 + bootstrap CI）",
+  "measuredAt": "2026-11-14",
+  "method": {
+    "probes": 54,
+    "categories": 24,
+    "samplesPerCell": 5,
+    "rounds": 2,
+    "significance": "bootstrap 95% CI，点差 <15pt 视为不可信"
+  },
+  "models": {
+    "deepseek-v4-pro": {
+      "tier": "recommended_alt",
+      "provider": "buddy",
+      "modelId": "deepseek-v4-pro",
+      "refusal": {
+        "plain": 43.1,
+        "injected": 8.1,
+        "delta": 35.0,
+        "significant": true,
+        "ci": {
+          "plain": [
+            37.0,
+            49.6
+          ],
+          "injected": [
+            4.5,
+            12.2
+          ]
+        },
+        "reproducibility": "两次独立运行差 0.8pt，高度可复现"
+      },
+      "executability": {
+        "plain": 74.4,
+        "injected": 84.9,
+        "delta": 10.5
+      },
+      "cost": {
+        "plainCredit": 0.2949,
+        "injectedCredit": 0.4863,
+        "overheadPct": 65,
+        "injectedPromptTokens": 6482
+      },
+      "reason": "可执行率最高（85%）、可复现性最好（两次差 0.8pt），但成本是 mimo 的 2 倍"
+    },
+    "glm-5.3": {
+      "tier": "not_recommended",
+      "provider": "buddy",
+      "modelId": "glm-5.3",
+      "refusal": {
+        "plain": 29.2,
+        "injected": 20.2,
+        "delta": 9.0,
+        "significant": false,
+        "ci": {
+          "plain": [
+            35.2,
+            23.2
+          ],
+          "injected": [
+            20.2,
+            16.5
+          ]
+        }
+      },
+      "executability": {
+        "plain": 85.5,
+        "injected": 80.0,
+        "delta": -5.5
+      },
+      "cost": {
+        "plainCredit": 0.546,
+        "injectedCredit": 0.993,
+        "overheadPct": 82,
+        "injectedPromptTokens": 6098
+      },
+      "reason": "注入效果在噪声内（9pt < 方差 12pt），成本反而最高（+82%）"
+    },
+    "kimi-k3.1-pro": {
+      "tier": "situational",
+      "provider": "buddy",
+      "modelId": "kimi-k3.1-pro",
+      "refusal": {
+        "plain": 65.4,
+        "injected": 51.5,
+        "delta": 13.9,
+        "significant": true,
+        "ci": {
+          "plain": [
+            59.4,
+            71.4
+          ],
+          "injected": [
+            44.6,
+            58.3
+          ]
+        },
+        "note": "r1_A 样本不足(n=15)，A 组均值未采用"
+      },
+      "note": "早期 n=1 显示完全不吃注入（78% 拒绝率），待本次验证",
+      "executability": {
+        "plain": 90.9,
+        "injected": 100,
+        "delta": 9.1
+      },
+      "cost": {
+        "plainCredit": 1.4272,
+        "injectedCredit": 1.683,
+        "overheadPct": 18,
+        "injectedPromptTokens": 5770
+      },
+      "reason": "注入后仍有 51.5% 拒绝，绝对效果最差；但成本增量最低（+18%），可执行率最高（100%）"
+    },
+    "mimo-v2.6-pro": {
+      "tier": "recommended",
+      "provider": "buddy",
+      "modelId": "mimo-v2.6-pro",
+      "refusal": {
+        "plain": 51.4,
+        "injected": 7.7,
+        "delta": 43.7,
+        "significant": true,
+        "ci": {
+          "plain": [
+            45.3,
+            57.5
+          ],
+          "injected": [
+            4.1,
+            11.2
+          ]
+        },
+        "reproducibility": "A组两轮差 4.2pt"
+      },
+      "executability": {
+        "plain": 86.4,
+        "injected": 83.6,
+        "delta": -2.8
+      },
+      "cost": {
+        "plainCredit": 0.1191,
+        "injectedCredit": 0.2336,
+        "overheadPct": 96,
+        "injectedPromptTokens": 6097
+      },
+      "reason": "降幅最大（43.7pt）、绝对成本最低（0.234 credit/次）、性价比是 glm 的 19 倍"
+    }
+  },
+  "routing": {
+    "default": "mimo-v2.6-pro",
+    "fallback": [
+      "deepseek-v4-pro"
+    ],
+    "situational": [
+      "kimi-k3.1-pro"
+    ],
+    "notRecommended": [
+      "glm-5.3"
+    ],
+    "note": "mimo 性价比最优；v4-pro 质量与可复现性最优；kimi 仅在要求输出完整度时考虑；glm 不用于破甲"
+  },
+  "caveats": [
+    "只测了 CodeBuddy 渠道，其他 provider 可能不同",
+    "单轮无缓存场景，真实长会话成本结构不同（98.9% 走缓存）",
+    "只测语法可执行，不测事实正确性",
+    "selfharm 类目在所有模型上均无效甚至反向，不应计入效果评估"
+  ],
+  "costEfficiency": {
+    "note": "每降低 1pt 拒绝率的 credit 成本（越小越好）",
+    "mimo-v2.6-pro": 0.0026,
+    "deepseek-v4-pro": 0.0055,
+    "kimi-k3.1-pro": 0.0184,
+    "glm-5.3": 0.0497
+  }
+}

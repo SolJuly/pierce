@@ -3,8 +3,9 @@
  *
  * 端点：https://copilot.tencent.com/v2/chat/completions
  * 协议：SSE 流式（非流式被服务端拒绝：code 11101）
- * 凭据：/root/.dsh/.credentials.yaml 的 BUDDY_ACCOUNT_* → access_token
- *       （插件 channel-pack 的账号池，11 个账号可轮换）
+ * 凭据：DSH 凭据文件里的 BUDDY_ACCOUNT_* → access_token
+ *       （插件 channel-pack 的账号池，可轮换多账号）
+ *       文件路径由 DSH_CREDENTIALS 环境变量给出，默认 $DSH_HOME/.credentials.yaml
  *
  * 实测（2026-11-11）：
  *   glm-5.3        ✓ 稳定出正文
@@ -13,6 +14,8 @@
  *   deepseek-v4.1-flash ✗ 频率限制（code 6004，23:45 重置）
  */
 import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 const ENDPOINT = "https://copilot.tencent.com/v2/chat/completions";
 const UA = "CodeBuddyIDE/1.106.1";
@@ -24,7 +27,14 @@ const UA = "CodeBuddyIDE/1.106.1";
  * 中间的换行在 YAML 里折叠成空格）。逐行读会把 JSON 截断，
  * 所以这里必须按「下一个 key 出现」为界累积。
  */
-export function readRefs(file = "/root/.dsh/.credentials.yaml") {
+const DEFAULT_CREDENTIALS = (() => {
+  const explicit = process.env.DSH_CREDENTIALS;
+  if (explicit) return explicit;
+  const home = process.env.DSH_HOME || path.join(os.homedir(), ".dsh");
+  return path.join(home, ".credentials.yaml");
+})();
+
+export function readRefs(file = DEFAULT_CREDENTIALS) {
   const lines = fs.readFileSync(file, "utf8").split("\n");
   const out = {};
   let inRefs = false;
@@ -73,6 +83,7 @@ function parseSSE(text) {
   let reasoning = "";
   let finish = null;
   let error = null;
+  let usage = null;
   for (const line of text.split("\n")) {
     if (!line.startsWith("data:")) continue;
     const payload = line.slice(5).trim();
@@ -81,6 +92,8 @@ function parseSSE(text) {
     try { j = JSON.parse(payload); } catch { continue; }
     if (j.code && j.msg) { error = `${j.code}: ${j.msg}`; continue; }
     if (j.error) { error = JSON.stringify(j.error).slice(0, 160); continue; }
+    // usage 只在开启 include_usage 时的最后一帧出现，必须在取 choices 之前抓
+    if (j.usage && typeof j.usage === "object") usage = j.usage;
     const ch = j.choices?.[0];
     if (!ch) continue;
     const d = ch.delta ?? {};
@@ -88,7 +101,7 @@ function parseSSE(text) {
     if (d.reasoning_content) reasoning += d.reasoning_content;
     if (ch.finish_reason) finish = ch.finish_reason;
   }
-  return { content, reasoning, finish, error };
+  return { content, reasoning, finish, error, usage };
 }
 
 /**
@@ -100,6 +113,7 @@ export async function buddyChat({ model, system, user, maxTokens = 1200, timeout
   if (!pool.length) return { ok: false, error: "没有 buddy 账号" };
   let lastErr = null;
   for (const { ref, token } of pool) {
+    const startedAt = performance.now();
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), timeoutMs);
     try {
@@ -116,14 +130,16 @@ export async function buddyChat({ model, system, user, maxTokens = 1200, timeout
           messages: [...(system ? [{ role: "system", content: system }] : []), { role: "user", content: user }],
           max_tokens: maxTokens,
           stream: true,
+          stream_options: { include_usage: true },
         }),
         signal: ctl.signal,
       });
       const text = await res.text();
+      const elapsedMs = Math.round(performance.now() - startedAt);
       const r = parseSSE(text);
       if (r.error) { lastErr = r.error; continue; } // 换下一个账号
       if (!r.content && !r.reasoning) { lastErr = "空响应"; continue; }
-      return { ok: true, ...r, token: ref };
+      return { ok: true, ...r, token: ref, elapsedMs };
     } catch (e) {
       lastErr = e.name === "AbortError" ? "timeout" : String(e.message).slice(0, 80);
     } finally {
@@ -131,4 +147,23 @@ export async function buddyChat({ model, system, user, maxTokens = 1200, timeout
     }
   }
   return { ok: false, error: lastErr || "全部账号失败" };
+}
+
+/**
+ * 读各账号的 quota.percent（已用百分比）。
+ * 用于给自己设预算上限 —— 跑测试前先看一眼，别把额度跑光。
+ */
+export async function quotaReport(model = "glm-5.3") {
+  const toks = buddyTokens();
+  const rows = [];
+  for (const t of toks) {
+    try {
+      const r = await buddyChat({ model, user: "1", maxTokens: 5, tokens: [t] });
+      const q = r.usage?.quota;
+      rows.push({ ref: t.ref, percent: q?.percent ?? null, resetAt: q?.reset_at ?? null, ok: r.ok });
+    } catch (e) {
+      rows.push({ ref: t.ref, percent: null, error: String(e.message).slice(0, 60) });
+    }
+  }
+  return rows;
 }

@@ -1,0 +1,20 @@
+# 依赖
+node_modules/
+.pnpm-store/
+
+# 测试原始数据（体积大、含模型完整输出，不随仓库分发）
+test/refusal/out/
+*.log
+
+# 内部文档（含本机部署细节、撤补丁记录，不公开）
+docs/
+
+# 第三方内容（dsh-purge 的原版提示词与人设，版权归原作者）
+test/refusal/purge-exact.md
+test/refusal/purge-equivalent.md
+提示词/00-原版.md
+
+# 本机凭据与临时产物
+*.bak
+*.bak.*
+.DS_Store

@@ -4,10 +4,11 @@
  * 这些锚点是在这台机器上实测能打中的，比自己重推一遍可靠。
  */
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { FILE_MAP } from "../engine/paths.mjs";
 
-const FORK = process.env.FORK_ROOT || "/root/work/dsh-purge-fork";
+const FORK = process.env.FORK_ROOT || path.join(os.homedir(), "dsh-purge-fork");
 const sources = ["local/patches.generated.mjs", "local/patches.extra.mjs"];
 
 // 反向表：相对路径 → 逻辑键
