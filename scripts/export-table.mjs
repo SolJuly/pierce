@@ -4,9 +4,14 @@
  * 用法：node scripts/export-table.mjs
  */
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
-const PURGE = process.env.PURGE_ROOT || "/root/.dsh/profiles/web/node_modules/dsh-purge";
+// dsh-purge 的安装位置随部署而变：优先 PURGE_ROOT，其次 $DSH_HOME 下的 profile。
+const DSH_HOME_DIR = process.env.DSH_HOME || path.join(os.homedir(), ".dsh");
+const PURGE = process.env.PURGE_ROOT
+  || process.env.PURGE_DIR
+  || path.join(DSH_HOME_DIR, "profiles/web/node_modules/dsh-purge");
 const core = await import(path.join(PURGE, "lib/core.js"));
 
 const rows = core.ALL_PATCHES.map((p) => ({
