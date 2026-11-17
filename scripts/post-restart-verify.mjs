@@ -82,10 +82,31 @@ for (const [rel, needle, label] of MUST_ABSENT) {
 
 // ── 4. 配置层 ────────────────────────────────────────────────
 section("4. 配置层");
-const dump = sh(`DSH_HOME=/root/.dsh timeout 60 /opt/dsh-clean/node_modules/.bin/dsh --profile web --dump-config 2>&1`);
+// 必须用**线上**二进制 dump：/opt/dsh-clean 的 dsh 会加载它自己那份干净
+// bundles，base 层的值（mode / policy）全显示成官方默认，看不出线上改动。
+const LIVE_DSH = process.env.LIVE_DSH || "/usr/local/bin/dsh";
+const dump = sh(`DSH_HOME=/root/.dsh timeout 60 ${LIVE_DSH} --profile web --dump-config 2>&1`);
+// 自检：确认 dump 真的来自线上安装（base 层的 policy 应是我改的 ask 常量）
+ok("dump 来自线上安装", dump.includes("ask"), "base.approval.policy 可见");
 const suffix = /personaSuffix:\s*(.*)/.exec(dump)?.[1]?.trim() ?? "";
 ok("personaSuffix 不再引用 {{cwd}}", !suffix.includes("{{cwd}}"), suffix || "(空)");
 ok("pierce 在配置树里", dump.includes("dsh-pierce") || dump.includes("id: pierce"));
+
+// 新会话的默认 preset：本部署要有意保持 danger-full-access。
+// 历史上这是靠 purge 的 #51 补丁（改源码）实现的，撤掉后必须在这里显式声明，
+// 否则新会话会退回 workspace-write —— 那是行为变化，不是清理补丁的预期结果。
+ok("defaultPreset = danger-full-access", /defaultPreset:\s*danger-full-access/.test(dump));
+
+// approval 必须是 ask，不能是 never：never 会让 decide() 在 waterfall 之前
+// return rejected，pierce 的 approval/request 钩子根本没机会跑。
+// YAML 会用单引号转义，实际 dump 形如：policy: !!js <三引号>ask<三引号>
+const approvalBlock = /- id: approval[\s\S]{0,400}?(?=\n- id:|\n# ==|$)/.exec(dump)?.[0] ?? "";
+const policyLine = approvalBlock.split("\n").find((l) => l.includes("policy:")) ?? "";
+ok(
+  "base 的 approval.policy = ask（不是 never）",
+  policyLine.includes("ask") && !policyLine.includes("never"),
+  policyLine.trim().slice(0, 60) || "(未找到 policy 行)",
+);
 
 // purge 的 bundle patch 也不该带 {{cwd}}
 const purgeYml = "/root/.dsh/profiles/web/node_modules/dsh-purge/cordis.patch.yml";
