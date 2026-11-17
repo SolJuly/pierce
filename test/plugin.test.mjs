@@ -7,7 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import plugin, { setEnabled, __setTrustedInstructionFilesForTest } from "../lib/index.js";
+import plugin, { setEnabled, isEnabled, chan, CHANNEL_NAMES, __setTrustedInstructionFilesForTest } from "../lib/index.js";
 
 let pass = 0;
 const ok = (label, cond) => {
@@ -429,6 +429,149 @@ console.log("[11] agentInstructions：按来源分级改写 intro");
   __setTrustedInstructionFilesForTest(null);
 }
 
-process.env.DSH_HOME = prevHome ?? "";process.env.DSH_HOME = prevHome ?? "";process.env.DSH_HOME = prevHome ?? "";
+console.log("[12] /pierce 命令 + 分通道运行期开关");
+{
+  // mock 一个带 commands 服务的 ctx（真实宿主里是嵌套 inject 拿到的）
+  const makeCmdCtx = (config = {}) => {
+    const base = makeCtx();
+    const registered = [];
+    base.ctx.inject = (deps, cb) => {
+      if (!deps.includes("commands")) return;
+      cb({
+        effect: (fn) => {
+          const d = fn();
+          base.effects.push(d);
+          return d;
+        },
+        commands: {
+          register: (def) => {
+            registered.push(def);
+            return () => {};
+          },
+        },
+      });
+    };
+    plugin.apply(base.ctx, config);
+    return { ...base, registered, def: registered[0] };
+  };
+
+  const c = makeCmdCtx({});
+  ok("注册了 pierce 命令", c.registered.length === 1);
+  ok("命令名 = pierce", c.def?.name === "pierce");
+  ok("有 input hint", typeof c.def?.input?.hint === "string" && c.def.input.hint.length > 0);
+  ok("定义了 definitionId", c.def?.definitionId === "dsh-pierce");
+
+  // 无参数 = status
+  const st0 = c.def.handler({ rawInput: "" });
+  ok("裸 /pierce 报总开关 ON", st0.kind === "success" && /总开关 ON/.test(st0.text));
+  ok("status 列出全部通道", ["prompt", "approval", "gate", "fs", "identity", "reframe", "instructions"].every((n) => st0.text.includes(n)));
+
+  // 总开关：off 之后审批钩子必须走回官方链路
+  const ap = c.handlers.get("approval/request");
+  ok("开时审批放行", ap({ toolName: "bash" }, async () => "unavailable") === "allowed-once");
+  const offRes = c.def.handler({ rawInput: "off" });
+  ok("/pierce off 生效", offRes.kind === "success" && /总开关 → OFF/.test(offRes.text));
+  ok("关后审批走回 next()", (await ap({ toolName: "bash" }, async () => "unavailable")) === "unavailable");
+  c.def.handler({ rawInput: "on" });
+  ok("再开回来", ap({ toolName: "bash" }, async () => "unavailable") === "allowed-once");
+
+  // 分通道：只关审批，工具门不受影响
+  const gate = c.handlers.get("tools/pre-execute");
+  ok("开时工具门降 ask", (await gate({ toolName: "bash" }, async () => ({ kind: "ask" }))).kind === "allow");
+  const chOff = c.def.handler({ rawInput: "approval off" });
+  ok("/pierce approval off 生效", chOff.kind === "success" && /approval → off/.test(chOff.text));
+  ok("只关审批后审批走回 next()", (await ap({ toolName: "bash" }, async () => "unavailable")) === "unavailable");
+  ok("工具门不受影响", (await gate({ toolName: "bash" }, async () => ({ kind: "ask" }))).kind === "allow");
+  const onlyOne = c.def.handler({ rawInput: "approval" });
+  ok("单查某通道", onlyOne.kind === "success" && onlyOne.text === "approval = off");
+
+  // 未知通道 / 非法值
+  const bad1 = c.def.handler({ rawInput: "bogus off" });
+  ok("未知通道报错并列出可选", bad1.kind === "error" && /未知通道/.test(bad1.text) && /approval/.test(bad1.text));
+  const bad2 = c.def.handler({ rawInput: "approval maybe" });
+  ok("非法值报错", bad2.kind === "error");
+
+  // 提示词通道：关掉后 pierce:body 段渲染成空串
+  const sec = c.sections.find((x) => x.name === "pierce:body");
+  ok("prompt 通道开时正文非空", String(sec.text()).length > 0);
+  c.def.handler({ rawInput: "prompt off" });
+  ok("prompt 通道关后正文为空串（renderPrompt 会滤掉）", sec.text() === "");
+
+  // 配置里关掉的通道：注册时就没挂钩子，命令不该假装能打开
+  const c2 = makeCmdCtx({ autoGrantApproval: false, allowToolGate: false });
+  ok("cfg 关掉的通道不挂钩子", !c2.handlers.has("approval/request") && !c2.handlers.has("tools/pre-execute"));
+  const st2 = c2.def.handler({ rawInput: "status" });
+  ok("status 如实标 off", /approval=off/.test(st2.text) && /gate=off/.test(st2.text));
+}
+
+console.log("[13] 通道真相：wired 由注册处记录，不是从 cfg 反推");
+{
+  const mk = (config = {}) => {
+    const base = makeCtx();
+    const registered = [];
+    base.ctx.inject = (deps, cb) => {
+      if (!deps.includes("commands")) return;
+      cb({
+        effect: (fn) => {
+          const d = fn();
+          base.effects.push(d);
+          return d;
+        },
+        commands: { register: (def) => { registered.push(def); return () => {}; } },
+      });
+    };
+    plugin.apply(base.ctx, config);
+    return { ...base, def: registered[0] };
+  };
+
+  // 默认配置：reframe（contextReframe.enabled 默认 false）与 instructions 都没挂钩子
+  const d1 = mk({});
+  ok("/pierce reframe on 被拒（未挂钩子）", d1.def.handler({ rawInput: "reframe on" }).kind === "error");
+  ok("/pierce instructions on 被拒", d1.def.handler({ rawInput: "instructions on" }).kind === "error");
+  ok("被拒时不改状态", /reframe=off/.test(d1.def.handler({ rawInput: "status" }).text));
+  ok("/pierce approval off 允许", d1.def.handler({ rawInput: "approval off" }).kind === "success");
+  ok("/pierce approval on 允许（它挂着）", d1.def.handler({ rawInput: "approval on" }).kind === "success");
+
+  // 开了 contextReframe 且有 text → reframe 才点亮
+  const d2 = mk({ contextReframe: { enabled: true, text: "ctx" } });
+  ok("contextReframe 开了 → reframe 点亮", /reframe=on/.test(d2.def.handler({ rawInput: "status" }).text));
+  // 开了但 text 为空 → 仍然不点亮（注入不了）
+  const d3 = mk({ contextReframe: { enabled: true, text: "" } });
+  ok("contextReframe 开了但 text 空 → 不点亮", /reframe=off/.test(d3.def.handler({ rawInput: "status" }).text));
+  // stripIdentity 关掉时 reframe 也没钩子（它挂在那块里）
+  const d4 = mk({ stripIdentity: false, contextReframe: { enabled: true, text: "ctx" } });
+  ok("stripIdentity 关 → reframe 不点亮", /reframe=off/.test(d4.def.handler({ rawInput: "status" }).text));
+
+  // instructions 必须同时有 enabled 和 intro 才挂钩子
+  const d5 = mk({ agentInstructions: { enabled: true } });
+  ok("instructions 只有 enabled、没有 intro → 不点亮", /instructions=off/.test(d5.def.handler({ rawInput: "status" }).text));
+  const d6 = mk({ agentInstructions: { enabled: true, trustedIntro: "T" } });
+  ok("instructions enabled + intro → 点亮", /instructions=on/.test(d6.def.handler({ rawInput: "status" }).text));
+
+  // 未挂载的 ctx：chan 与 isEnabled 结论相反（已写进注释，这里钉住）
+  const bare = {};
+  ok("isEnabled(未挂载) = true", isEnabled(bare) === true);
+  ok("chan(未挂载) = false", chan(bare, "approval") === false);
+
+  // 注册失败时不能报「已注册」：让 register 抛异常
+  const base = makeCtx();
+  const logs = [];
+  const origLog = console.log;
+  console.log = (...a) => logs.push(a.join(" "));
+  base.ctx.inject = (deps, cb) => {
+    if (!deps.includes("commands")) return;
+    cb({
+      effect: (fn) => {
+        try { return fn(); } catch { return () => {}; }
+      },
+      commands: { register: () => { throw new Error("command \"pierce\" is already registered"); } },
+    });
+  };
+  plugin.apply(base.ctx, {});
+  console.log = origLog;
+  ok("注册抛异常时不打「已注册」", !logs.some((l) => l.includes("命令已注册")));
+}
+
+process.env.DSH_HOME = prevHome ?? "";
 fs.rmSync(DSH_HOME_TMP, { recursive: true, force: true });
 console.log(`\n通过 ${pass} 项`);

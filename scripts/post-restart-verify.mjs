@@ -241,6 +241,25 @@ if (fs.existsSync(purgeYml)) {
   ok("purge bundle patch 不再引用 {{cwd}}", !live.includes("{{cwd}}"));
 }
 
+// 命令是否真的注册进宿主的命令表。
+// 这一层在配置 dump 里完全看不见（dump 只反映 loader 树，不反映服务注册），
+// 所以只能靠插件自己的启动日志。第一次上线时这里误报过「未注册」——
+// 原因是横幅在 apply 阶段同步打印，而 ctx.inject 的回调是异步的。
+const startRaw = sh(`ps -o lstart= -p $(systemctl show dsh -p MainPID --value)`).trim();
+const journalSince = (() => {
+  const d = new Date(startRaw);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+})();
+const jlog = journalSince ? sh(`journalctl -u dsh --since "${journalSince}" --no-pager 2>/dev/null`) : "";
+ok("pierce 启动横幅可见", /\[pierce\] 已挂 \d+ 个扩展点/.test(jlog), (/\[pierce\] 已挂[^\n]*/.exec(jlog)?.[0] ?? "").slice(0, 70));
+ok(
+  "/pierce 命令已注册进宿主",
+  /\[pierce\] \/pierce 命令已注册/.test(jlog),
+  /\[pierce\] \/pierce[^\n]*/.exec(jlog)?.[0] ?? "(日志里没有——命令没挂上)",
+);
+
 // ── 5. 运行时：真宿主跑 turn ────────────────────────────────
 section("5. 运行时（线上宿主 + 真实请求体）");
 const liveScript = path.join(REPO_ROOT, "scripts/verify-live-source.mjs");
