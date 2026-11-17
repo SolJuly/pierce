@@ -13,7 +13,12 @@
     includeHarnessIdentity: false
     includeRuntimeContext: true
     personaPrefix: ""
-    personaSuffix: "Your working directory is {{cwd}}."
+    # 不要在这里用 {{cwd}}：官方只注册 provider/model 两个 prompt 变量，
+    # 未注册的引用会让装配直接抛 UNKNOWN，每个 turn 死在第 1 步。
+    #
+    # 工作目录信息由宿主自己的 runtime context（working-directory）提供，
+    # 不需要在 personaSuffix 里重复一遍。
+    personaSuffix: ""
 
 - insert:
     - id: pierce
