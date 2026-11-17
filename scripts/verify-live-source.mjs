@@ -162,6 +162,23 @@ const main = async () => {
     ok("文件正文完整保留", instructions.includes("REPO_MARKER_7723"));
   }
 
+  // ── 身份层：系统消息里两段官方身份都不能出现 ──────────────────────
+  // 撤掉 9 个 bundle YAML 的 personaPrefix 补丁之后，官方那句
+  // "You are a coding agent powered by the {model} model." 会自己回来，
+  // 靠的是 pierce 在 system-prompt/assemble 里删段。
+  // 线上还叠着一层 purge 的配置（personaPrefix: ''），所以这条在线上是
+  // 双保险 —— 真正的单点验证在纯净宿主 e2e-verify 里。
+  const sysText = allBodies
+    .flatMap((b) => b.messages || [])
+    .filter((m) => m.role === "system")
+    .map((m) => (typeof m.content === "string" ? m.content : (m.content || []).map((c) => c.text || "").join("")))
+    .join("\n");
+  ok("官方 personaPrefix 没进系统消息", !sysText.includes("You are a coding agent powered by"), sysText.length ? "" : "(无 system 消息)");
+  ok("harness 自称没进系统消息", !sysText.includes("powered by DeepSeek Harness"));
+
+  // ── 破甲正文真的注入（这条证明重启后注入链路仍然活着）──────────────
+  ok("破甲人设正文在系统消息里", sysText.includes("Caco") || sysText.includes("破甲"));
+
   console.log(`\n\x1b[1m═══ 结果：${pass} 项通过 ═══\x1b[0m\n`);
 };
 

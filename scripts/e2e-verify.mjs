@@ -258,6 +258,17 @@ async function scenarioPrompt() {
 
     const identity = (dump.sections || []).find((s) => s.name === "harness:identity");
     record("harness 身份段被清空", !identity || identity.chars === 0, identity ? `${identity.chars} 字符` : "不存在");
+
+    // 这条是「撤掉 9 个 bundle YAML 补丁」的验收：纯净宿主没有 dsh-purge，
+    // web-app 的 YAML 给的是官方 personaPrefix
+    // "You are a coding agent powered by the {{model}} model."。
+    // 如果 pierce 的 personaStrips 没生效，这里会看到非零字符。
+    const pre = (dump.sections || []).find((s) => s.name === "deployment:persona-prefix");
+    record(
+      "deployment:persona-prefix 被摘掉（替代改 9 个 bundle YAML）",
+      !pre,
+      pre ? `仍在，${pre.chars} 字符` : "已摘除",
+    );
   } finally {
     mock.stop();
   }

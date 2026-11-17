@@ -54,6 +54,7 @@ const MUST_MATCH = [
   ["dsh-tool-pwsh/lib/index.js", "pwsh 安全回退已还原"],
   ["dsh-subagent/lib/index.js", "子代理权限话术已还原"],
   ["dsh-permission-presets/lib/index.js", "预设描述已还原"],
+  ["dsh-app-boot/lib/index.js", "overlay 缺失时回落 .dshpurge.bak 的兜底已撤"],
 ];
 for (const [rel, label] of MUST_MATCH) {
   const a = path.join(CLEAN, rel);
@@ -61,6 +62,21 @@ for (const [rel, label] of MUST_MATCH) {
   const same = fs.existsSync(a) && fs.existsSync(b) && fs.readFileSync(a, "utf8") === fs.readFileSync(b, "utf8");
   ok(label, same, same ? "0 差异" : "仍有差异");
 }
+
+// 兜底一旦还在，删任何 overlay 都会静默读回 purge 补丁态 —— 这条必须硬断言。
+const appBootSrc = path.join(MODULES, "dsh-app-boot/lib/index.js");
+const appBootText = fs.existsSync(appBootSrc) ? fs.readFileSync(appBootSrc, "utf8") : "";
+ok("app-boot 源码里没有 .dshpurge.bak 回落", !appBootText.includes(".dshpurge.bak"));
+const leftoverBak = [];
+const walkBak = (dir) => {
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    const p = path.join(dir, e.name);
+    if (e.isDirectory()) walkBak(p);
+    else if (e.name.endsWith(".dshpurge.bak")) leftoverBak.push(path.relative(MODULES, p));
+  }
+};
+walkBak(MODULES);
+ok("安装树里没有残留 .dshpurge.bak", leftoverBak.length === 0, leftoverBak.length ? `${leftoverBak.length} 个：${leftoverBak.slice(0, 3).join(", ")}` : "0 个");
 
 // 必须**不**存在的破甲特征
 section("3. 破甲特征必须消失");
@@ -86,8 +102,101 @@ section("4. 配置层");
 // bundles，base 层的值（mode / policy）全显示成官方默认，看不出线上改动。
 const LIVE_DSH = process.env.LIVE_DSH || "/usr/local/bin/dsh";
 const dump = sh(`DSH_HOME=/root/.dsh timeout 60 ${LIVE_DSH} --profile web --dump-config 2>&1`);
-// 自检：确认 dump 真的来自线上安装（base 层的 policy 应是我改的 ask 常量）
-ok("dump 来自线上安装", dump.includes("ask"), "base.approval.policy 可见");
+
+// 取某个 - id: 条目的整块（到下一个 - id: / 段注释 / 结尾为止）
+const blockOf = (id) =>
+  new RegExp(`- id: ${id}\\n[\\s\\S]{0,600}?(?=\\n- id:|\\n# ==|$)`).exec(dump)?.[0] ?? "";
+const lineIn = (block, needle) => block.split("\n").find((l) => l.includes(needle)) ?? "";
+
+// 自检：确认 dump 真的来自线上安装，而不是纯净基线。
+// 判据用 sandbox-policy.mode —— 官方默认是 workspace-write，本部署是
+// danger-full-access。以前这条写的是 dump.includes("ask")，太松，纯净版也含 ask，
+// 等于没自检（踩过一次：拿纯净二进制作 dump，所有断言在假数据上全绿）。
+const spBlock = blockOf("sandbox-policy");
+const modeLine = lineIn(spBlock, "mode:");
+ok(
+  "dump 来自线上安装（不是纯净基线）",
+  modeLine.includes("danger-full-access"),
+  modeLine.trim() || "(未找到 sandbox-policy.mode)",
+);
+
+// sandbox-policy 的 config 是**整体替换**：官方有两个字段（mode / workspaceRoot），
+// profile 覆盖时少写 workspaceRoot 就会真的丢，工作区根会变成 undefined。
+ok("sandbox-policy.workspaceRoot 没被整体替换吃掉", /workspaceRoot:/.test(spBlock));
+ok(
+  "sandbox-policy 由 profile 层覆盖",
+  /patched by .*profiles\/web\/cordis\.patch\.yml/.test(
+    (/[\s\S]*?- id: sandbox-policy/.exec(dump)?.[0] ?? "").split("\n").slice(-8).join("\n"),
+  ) || /profiles\/web\/cordis\.patch\.yml[\s\S]{0,400}- id: sandbox-policy/.test(dump),
+);
+
+// ── 4b. 配置层不得有补丁（YAML 层盲区）──────────────────────
+// 这一层以前完全没盘。病根：撤补丁只盯 JS 源码，bundle 的 cordis.patch.yml
+// 改了 10 个文件没人发现，其中 dsh-base 那两处还是「审批链路可达性」的承重墙。
+// 现在直接把两棵树的 .yml/.yaml 递归比一遍。
+section("4b. 配置层（YAML）必须与官方一致");
+const walkYaml = (root) => {
+  const out = [];
+  const rec = (dir) => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) {
+        if (e.name === "node_modules" && dir !== root) continue;
+        rec(p);
+      } else if (/\.ya?ml$/.test(e.name)) out.push(path.relative(root, p));
+    }
+  };
+  rec(root);
+  return out;
+};
+// 版本自检：两棵树必须真是同一个版本，否则「0 差异」是拿苹果比橘子。
+// /opt/dsh-clean 是个 npm 工程（package.json version 1.0.0，依赖 @deepseek-ai/dsh），
+// 它的 node_modules/@deepseek-ai 与线上的 dsh/node_modules/@deepseek-ai 是同一批包；
+// 第三方依赖版本两边会漂（commander / pi-ai 之类），那些不在比对范围内，
+// 但 @deepseek-ai/* 必须逐一对齐，否则下面的 YAML 断言没有意义。
+const pkgVersions = (root) => {
+  const out = new Map();
+  for (const e of fs.readdirSync(root, { withFileTypes: true })) {
+    if (!e.isDirectory()) continue;
+    const pj = path.join(root, e.name, "package.json");
+    if (!fs.existsSync(pj)) continue;
+    try { out.set(e.name, JSON.parse(fs.readFileSync(pj, "utf8")).version); } catch { /* 跳过坏 json */ }
+  }
+  return out;
+};
+const cv = pkgVersions(CLEAN);
+const lv = pkgVersions(MODULES);
+const versionDrift = [...cv.keys()].filter((k) => lv.has(k) && cv.get(k) !== lv.get(k));
+ok(
+  "@deepseek-ai/* 版本与纯净基线一致",
+  versionDrift.length === 0,
+  versionDrift.length === 0
+    ? `${cv.size} 个包全部同版本`
+    : `版本漂移 ${versionDrift.length}：${versionDrift.slice(0, 5).map((k) => `${k} ${cv.get(k)}≠${lv.get(k)}`).join(", ")}`,
+);
+
+// 排除 `dsh/` 这一支：那是宿主包本身，线上它的根是 MODULES 的父级的父级
+// （/usr/local/lib/nodejs/lib/node_modules/@deepseek-ai/dsh），并不在自己 node_modules 里，
+// 所以按相对路径比对必然对不上（典型如 dsh/README.i18n.yaml）。
+// dsh 包自身的源码差异由第 2 节那些 MUST_MATCH 覆盖。
+const isHostPkg = (f) => f.startsWith("dsh/") || f.startsWith(`dsh${path.sep}`);
+const cleanYaml = walkYaml(CLEAN).filter((f) => !isHostPkg(f)).sort();
+const liveYaml = walkYaml(MODULES).filter((f) => !isHostPkg(f)).sort();
+const onlyClean = cleanYaml.filter((f) => !liveYaml.includes(f));
+const onlyLive = liveYaml.filter((f) => !cleanYaml.includes(f));
+const differing = cleanYaml.filter((f) => {
+  const a = path.join(CLEAN, f);
+  const b = path.join(MODULES, f);
+  return fs.existsSync(b) && fs.readFileSync(a, "utf8") !== fs.readFileSync(b, "utf8");
+});
+ok(
+  "YAML 配置层 0 差异",
+  differing.length === 0 && onlyClean.length === 0 && onlyLive.length === 0,
+  differing.length === 0 && onlyClean.length === 0 && onlyLive.length === 0
+    ? `${liveYaml.length} 个文件全部一致`
+    : `差异 ${differing.length}：${differing.slice(0, 5).join(", ")}；仅纯净版 ${onlyClean.length}；仅线上 ${onlyLive.length}`,
+);
+if (differing.length) for (const f of differing.slice(0, 10)) console.error(`      ↳ ${f}`);
 const suffix = /personaSuffix:\s*(.*)/.exec(dump)?.[1]?.trim() ?? "";
 ok("personaSuffix 不再引用 {{cwd}}", !suffix.includes("{{cwd}}"), suffix || "(空)");
 ok("pierce 在配置树里", dump.includes("dsh-pierce") || dump.includes("id: pierce"));
@@ -96,6 +205,22 @@ ok("pierce 在配置树里", dump.includes("dsh-pierce") || dump.includes("id: p
 // 历史上这是靠 purge 的 #51 补丁（改源码）实现的，撤掉后必须在这里显式声明，
 // 否则新会话会退回 workspace-write —— 那是行为变化，不是清理补丁的预期结果。
 ok("defaultPreset = danger-full-access", /defaultPreset:\s*danger-full-access/.test(dump));
+
+// minimal preset 必须停用。
+// 它的 persona 段带 complete: true，而 dsh-system-prompt 在 waterfall 之后
+// 会把 sections 整个换成那一段（lib/index.js:392 抓快照 / :410 返回），
+// 任何插件钩子对 sections 的改动都不生效 —— pierce 的正文段 / 身份清洗 /
+// contextReframe 在那个 preset 下全部失效，插件层救不了。
+// 本部署 minimal 使用率为 0（62 个会话全是 standard），所以直接 disabled。
+const minimalBlock =
+  /- id: preset-minimal\n[\s\S]{0,4000}?(?=\n- id:|\n# ==|$)/.exec(dump)?.[0] ?? "";
+ok(
+  "minimal preset 已停用（否则破甲在它下面失效）",
+  /disabled: true/.test(minimalBlock),
+  minimalBlock
+    ? (/disabled: true/.test(minimalBlock) ? "disabled: true" : "仍在启用")
+    : "preset-minimal 不在配置树里",
+);
 
 // approval 必须是 ask，不能是 never：never 会让 decide() 在 waterfall 之前
 // return rejected，pierce 的 approval/request 钩子根本没机会跑。
@@ -123,8 +248,8 @@ if (fs.existsSync(liveScript)) {
   const out = sh(`PIERCE_E2E_DIR=${E2E_DIR} timeout 180 node ${liveScript} 2>&1`);
   const m = /结果：(\d+) 项通过/.exec(out);
   const n = m ? Number(m[1]) : 0;
-  ok("verify-live-source 全通过", n >= 7, `通过 ${n} 项`);
-  if (n < 7) console.error(out.split("\n").filter((l) => l.includes("✗")).join("\n"));
+  ok("verify-live-source 全通过", n >= 10, `通过 ${n} 项`);
+  if (n < 10) console.error(out.split("\n").filter((l) => l.includes("✗")).join("\n"));
 } else {
   ok("verify-live-source 存在", false);
 }

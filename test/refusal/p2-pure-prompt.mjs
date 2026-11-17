@@ -53,7 +53,12 @@ const arg = (k, d) => {
   return i >= 0 ? args[i + 1] : d;
 };
 
-const N = Number(arg("n", 5));
+// 注意：--n 曾经是「每条探针跑几次」的意图，但实际控制规模的是 --subset
+// （探针数）/ --groups / --rounds / --max-calls。sampleProbes 拿的是 SUBSET，
+// N 从头到尾没参与任何循环。保留解析是为了不破坏已有命令行，但它不再对外发声：
+// 日志和结果 JSON 都改用真实的 probes.length，否则报告里会印出假样本量。
+// （踩过：--n 3 实际跑了 54 条探针，白等两次超时；report.mjs 又把 n=3 当成样本量印出来。）
+const N = Number(arg("n", 5)); // 已废弃：不参与任何控制，见上
 const ROUNDS = Number(arg("rounds", 2));
 const MODEL = arg("model", "deepseek-v4-pro");
 const MAX_CALLS = Number(arg("max-calls", 600));
@@ -71,7 +76,7 @@ const PIERCE_PROMPT = fs.readFileSync(PROMPT_PATH, "utf8");
 
 const allProbes = JSON.parse(fs.readFileSync(path.join(here, "probe-set-v2.json"), "utf8")).probes;
 
-/** 按类别等距抽样，保证每个类别至少一条，且总数不超过 N。 */
+/** 按类别轮转抽样，保证覆盖所有类别，最多取 n 条（n 就是 --subset 的值）。 */
 function sampleProbes(all, n) {
   if (!n || n >= all.length) return all;
   const byCat = new Map();
@@ -238,10 +243,10 @@ const main = async () => {
   console.log(`模型     : ${MODEL}`);
   console.log(`提示词   : ${PROMPT_FILE} (${Buffer.byteLength(PIERCE_PROMPT)} 字节)`);
   console.log(`探针     : ${probes.length} 条 / 组 ${ONLY.join(",")}`);
-  console.log(`采样     : n=${N} × ${ROUNDS} 轮`);
+  console.log(`采样     : ${probes.length} 条 × ${ROUNDS} 轮 = ${probes.length * ROUNDS} 样本/组`);
   console.log(`预算上限 : ${MAX_CALLS} 次调用，quota ${QUOTA_STOP}% 停\n`);
 
-  const results = { model: MODEL, promptFile: PROMPT_FILE, n: N, rounds: ROUNDS, at: new Date().toISOString(), groups: {} };
+  const results = { model: MODEL, promptFile: PROMPT_FILE, n: probes.length, probeCount: probes.length, rounds: ROUNDS, at: new Date().toISOString(), groups: {} };
 
   for (const gk of ONLY) {
     if (!GROUPS[gk] || stopped) continue;

@@ -137,6 +137,28 @@ export async function buddyChat({ model, system, user, maxTokens = 1200, timeout
       const text = await res.text();
       const elapsedMs = Math.round(performance.now() - startedAt);
       const r = parseSSE(text);
+      // parseSSE 只认 `data:` 开头的行。服务端拒绝时返回的是**裸 JSON**
+      // （实测额度用尽：{"error":{"data":{"code":14018,"msg":"额度已用尽…"}}}），
+      // 一行 `data:` 都没有 → parseSSE 返回全空 → 上层报 "空响应"，
+      // 把「额度用尽」伪装成「网络卡死」，排查时白烧半小时。
+      // 所以这里补一层：全空时再看原始响应体，把真实的 HTTP 状态和错误码带出来。
+      if (!r.content && !r.reasoning && !r.error) {
+        let j = null;
+        try { j = JSON.parse(text); } catch { /* 不是 JSON 就原样带前 120 字符 */ }
+        const code = j?.error?.data?.code ?? j?.error?.code ?? j?.code;
+        const msg = j?.error?.data?.msg ?? j?.error?.message ?? j?.msg;
+        if (code !== undefined || msg !== undefined) {
+          r.error = `HTTP ${res.status} code=${code ?? "?"} ${String(msg ?? "").slice(0, 140)}`.trim();
+        } else if (!res.ok) {
+          r.error = `HTTP ${res.status} ${text.slice(0, 140)}`;
+        } else if (text.includes("data:")) {
+          // 200 + 是 SSE 但正文全空：把 usage 一起带出来 —— 额度/限流信息
+          // 往往就在 usage.quota 里，丢掉它等于又制造一次「什么都看不出来」。
+          r.error = `HTTP ${res.status} SSE 无正文（usage=${JSON.stringify(r.usage ?? null)}）`;
+        } else {
+          r.error = `HTTP ${res.status} 空响应（非 SSE、无错误字段）: ${text.slice(0, 120)}`;
+        }
+      }
       if (r.error) { lastErr = r.error; continue; } // 换下一个账号
       if (!r.content && !r.reasoning) { lastErr = "空响应"; continue; }
       return { ok: true, ...r, token: ref, elapsedMs };
