@@ -6,7 +6,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import assert from "node:assert/strict";
+import http from "node:http";
+import net from "node:net";
 import { createHash } from "node:crypto";
+import { PierceFetchProvider, PIERCE_FETCH_PROVIDER_ID } from "../lib/web-fetch.js";
 import plugin, { setEnabled, isEnabled, chan, CHANNEL_NAMES, hostOfWebTarget, hostMatchesPattern, webVerdict, __setTrustedInstructionFilesForTest } from "../lib/index.js";
 
 let pass = 0;
@@ -636,6 +639,79 @@ console.log("[14] web 通道管控：域名白/黑名单");
   ok("allowToolGate 关时管控仍生效", r2.kind === "deny");
   const r3 = await h2({ name: "web_fetch", arguments: { url: "https://a.ok.test/x" } }, async () => ({ kind: "ask" }));
   ok("allowToolGate 关时 ask 不降级（gate 通道 off）", r3.kind === "ask");
+}
+
+console.log("[15] pierce fetch provider（做法 A：放开协议与跨域重定向）");
+{
+  const p = new PierceFetchProvider({ timeoutMs: 3000, maxBodyChars: 64 });
+
+  // file://
+  const sample = path.join(DSH_HOME_TMP, "wf-sample.txt");
+  fs.writeFileSync(sample, "hello-pierce");
+  const f = await p.fetch({ url: `file://${sample}` });
+  ok("file:// 读得到", f.statusCode === 200 && f.body.content === "hello-pierce");
+  let fileErr = null;
+  try { await p.fetch({ url: "file:///nonexistent/xx" }); } catch (e) { fileErr = e; }
+  ok("file:// 不存在时报可读错误", /读不到本地文件/.test(String(fileErr?.message ?? "")));
+
+  // gopher:// → 本地 echo
+  const gopher = net.createServer((sock) => {
+    sock.on("data", (d) => sock.end("ECHO:" + d.toString().replace(/\r\n/g, "|")));
+  });
+  await new Promise((r) => gopher.listen(0, "127.0.0.1", r));
+  const gopherPort = gopher.address().port;
+  const gr = await p.fetch({ url: `gopher://127.0.0.1:${gopherPort}/_PING%20X` });
+  ok("gopher:// 能发能收", gr.body.content.startsWith("ECHO:PING X"));
+  ok("gopher 按 RFC 追加 CRLF", gr.body.content.includes("|"));
+  gopher.close();
+
+  // http 跨域重定向：A 端口 302 → 另一端口
+  const target = http.createServer((q, res) => { res.writeHead(200, { "content-type": "text/plain" }); res.end("arrived-B"); });
+  await new Promise((r) => target.listen(0, "127.0.0.1", r));
+  const targetPort = target.address().port;
+  const entry = http.createServer((q, res) => { res.writeHead(302, { location: `http://127.0.0.1:${targetPort}/x` }); res.end(); });
+  await new Promise((r) => entry.listen(0, "127.0.0.1", r));
+  const entryPort = entry.address().port;
+  const ar = await p.fetch({ url: `http://127.0.0.1:${entryPort}/` });
+  ok("跨域重定向被跟随（官方 provider 会拒）", ar.statusCode === 200 && ar.body.content === "arrived-B");
+  ok("返回的 url 是最终地址", ar.url.includes(String(targetPort)));
+  ok("content-type html 分类", (await p.fetch({ url: `http://127.0.0.1:${targetPort}/` })).body.kind === "text");
+  entry.close();
+  target.close();
+
+  // 不支持协议
+  let schemeErr = null;
+  try { await p.fetch({ url: "ftp://x/y" }); } catch (e) { schemeErr = e; }
+  ok("不支持的协议明确报错", /不支持协议/.test(String(schemeErr?.message ?? "")));
+
+  // 字符上限
+  const big = new PierceFetchProvider({ maxBodyChars: 8 });
+  const bigFile = path.join(DSH_HOME_TMP, "wf-big.txt");
+  fs.writeFileSync(bigFile, "0123456789abcdef");
+  const bg = await big.fetch({ url: `file://${bigFile}` });
+  ok("超长正文被截断并标记", bg.body.content.length === 8 && bg.truncated === true);
+
+  // 无效 URL
+  let badUrl = null;
+  try { await p.fetch({ url: "不是 url" }); } catch (e) { badUrl = e; }
+  ok("无效 URL 明确报错", /无效 URL/.test(String(badUrl?.message ?? "")));
+
+  // 注册路径：默认不注册，开了才注册
+  const mkWeb = (config) => {
+    const base = makeCtx();
+    const registered = [];
+    base.ctx.inject = (deps, cb) => {
+      if (!deps.includes("web")) return;
+      cb({ web: { registerFetchProvider: (prov) => { registered.push(prov); return () => {}; } } });
+    };
+    plugin.apply(base.ctx, config);
+    return registered;
+  };
+  ok("默认不注册 provider", mkWeb({}).length === 0);
+  const reg = mkWeb({ webFetchProvider: { enabled: true } });
+  ok("开启后注册 1 个", reg.length === 1);
+  ok("provider id 是 pierce", reg[0]?.id === PIERCE_FETCH_PROVIDER_ID);
+  ok("provider 恒可用", reg[0]?.available() === true);
 }
 
 process.env.DSH_HOME = prevHome ?? "";

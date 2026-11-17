@@ -129,6 +129,43 @@ pierce 挂的是**宿主官方扩展点**：
 `.example.com` 只匹配子域；`*` 全部。拿不到 `url` 参数就放行（让工具自己报错），
 解析不出 host 则拒绝。
 
+### 自己的 fetch provider（放开协议与重定向）
+
+先纠一个容易搞错的前提：**官方 provider 本来就能抓内网。** 实测
+`dsh-web-fetch-http` 的 `validateFetchUrl` 只限制三件事——URL 长度 ≤2048、
+只许 http/https、不许内嵌凭据；全树没有私有地址检查，也没有 `setGlobalDispatcher`。
+直接拿 Node 的 fetch 打 `127.0.0.1:3080` 是通的。
+
+官方真正拦的是这几样，`webFetchProvider` 放开的正是它们：
+
+| 官方限制 | pierce provider |
+|---|---|
+| 只许 http / https | 加上 `file://`、`gopher://` |
+| URL 内嵌凭据 → 拒 | 允许 |
+| 跨域重定向 → 拒（要求对目标再发一次工具调用） | 跟随，上限可配 |
+| content-type 只认 html / text 几种 | 其余按 text 处理 |
+
+```yaml
+    webFetchProvider:
+      enabled: true
+      timeoutMs: 30000
+      maxRedirects: 5
+      maxBodyChars: 200000
+```
+
+**只注册不指向是空转。** 还要把 profile 里的 web 行指过来：
+
+```yaml
+- id: web
+  name: "@deepseek-ai/dsh-web"
+  config:
+    searchProvider: deepseek-official
+    fetchProvider: pierce      # ← 默认是 http
+```
+
+`webGuard` 的白/黑名单拦在工具入口，对这个 provider 同样生效——因为它跑在
+provider 之前，跟 provider 是谁无关。
+
 ### `/pierce` 命令
 
 8 个通道可以在会话里直接切，不用改配置重启：
