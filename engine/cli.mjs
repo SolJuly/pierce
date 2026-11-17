@@ -3,7 +3,8 @@
  * pierce —— 破甲引擎 CLI。
  * 用法：
  *   node engine/cli.mjs status [--json]
- *   node engine/cli.mjs apply  [--dry] [--only 1,4,25] [--no-backup]
+ *   node engine/cli.mjs apply  --force-legacy [--dry] [--only 1,4,25] [--no-backup]
+ *      （apply 默认禁用：会把 purge 的源码补丁打回宿主，见 cmdApply 注释）
  *   node engine/cli.mjs revert [--dry] [--only 1,4,25]
  *   node engine/cli.mjs drift  [--out ref/drift.json]
  *   node engine/cli.mjs baseline <目标目录>   # 复制宿主原貌，供离线测试
@@ -66,10 +67,42 @@ function cmdStatus(o) {
   }
 }
 
+// ── 强制保险：apply 默认拒绝执行 ──────────────────────────────────────
+// 这两张表（purge-1.1.71 + pierce-0.2.2）是 dsh-purge 时代的产物，方向是
+// 「往宿主源码里打 82 条补丁」。而 pierce 现在的路线是纯官方扩展点 + profile
+// 配置层覆盖，宿主源码已经撤到接近官方原样。
+//
+// 也就是说在这里敲一次 apply，等于把撤掉的补丁全装回去 —— 一条命令抹掉四批
+// 回滚工作，而且不会有任何提示。这是本项目目前最容易被自己人踩的坑。
+//
+// 所以默认拒绝，必须显式 --force-legacy 才放行，并且先把后果打清楚。
 function cmdApply(o) {
   const t = loadMerged();
   const aiBase = o.base || primaryAiBase();
   const only = o.only ? String(o.only).split(",").map(Number) : null;
+
+  if (o["force-legacy"] !== true) {
+    const st = P.status(aiBase, t);
+    const sum = st.summary ?? {};
+    console.error("");
+    console.error("⛔ apply 已默认禁用：这个动作会把 dsh-purge 的源码补丁打回宿主。");
+    console.error("");
+    console.error(`   宿主      ${aiBase}`);
+    console.error(`   补丁表    ${t.counts?.patches ?? "?"} 条补丁 / ${t.counts?.rules ?? "?"} 条规则（legacy，来自 dsh-purge）`);
+    console.error(`   会打上的  pending=${sum.pending ?? 0} 条   already=${sum.already ?? 0}   partial=${sum.partial ?? 0}`);
+    console.error(`   其余      na=${sum.na ?? 0}  drift=${sum.drift ?? 0}  obsolete=${sum.obsolete ?? 0}（这三类本次不会改文件）`);
+    console.error("");
+    console.error("   为什么默认关：pierce 现在靠宿主官方扩展点 + profile 配置覆盖工作，");
+    console.error("   宿主源码已撤到接近官方原样。apply 会把那些补丁重新打回去，");
+    console.error("   并且覆盖掉 2026-11-17 那四批回滚的成果。");
+    console.error("");
+    console.error("   先看会打什么：  node engine/cli.mjs apply --dry --force-legacy");
+    console.error("   真的要走 legacy：node engine/cli.mjs apply --force-legacy");
+    console.error("");
+    process.exitCode = 3;
+    return;
+  }
+
   const res = P.apply(aiBase, t, { dryRun: !!o.dry, only, backup: o["no-backup"] !== true });
   console.log(`${res.dryRun ? "[dry] " : ""}应用结果  宿主: ${aiBase}`);
   console.log(`合计: ${Object.entries(res.summary).map(([k, v]) => `${k}=${v}`).join("  ")}`);
@@ -98,6 +131,28 @@ function cmdRevert(o) {
   const only = o.only ? String(o.only).split(",").map(Number) : null;
   const res = P.revert(aiBase, t, { dryRun: !!o.dry, only });
   console.log(`${res.dryRun ? "[dry] " : ""}回滚: 还原 ${res.restored.length} 个文件，跳过 ${res.skipped.length} 个`);
+
+  // ⚠ revert 是把 .pierce.bak 直接 copyFileSync 回目标文件，不校验目标当前是什么。
+  // 而备份是「第一次 apply 前写一次、之后不覆盖」（patcher.mjs 里 if (!existsSync(bak))），
+  // 所以 bak 可能是任意年代的内容 —— 包括 dsh-purge 时代的。
+  // 也就是说：一旦有人跑过 apply，后来的 revert 会把旧内容盖回去，
+  // 反向撤销 2026-11-17 的四批回滚。这里先告警，不拦（revert 本身是收敛方向）。
+  const stale = res.restored.filter((r) => {
+    try {
+      const bak = `${r.file}.pierce.bak`;
+      if (!fs.existsSync(bak) || !fs.existsSync(r.file)) return false;
+      return fs.statSync(bak).mtimeMs < fs.statSync(r.file).mtimeMs;
+    } catch {
+      return false;
+    }
+  });
+  const haveBak = res.restored.filter((r) => fs.existsSync(`${r.file}.pierce.bak`)).length;
+  if (haveBak > 0) {
+    console.log(`\n⚠ ${haveBak} 个文件将被 .pierce.bak 覆盖，其中 ${stale.length} 个的备份比目标文件更旧。`);
+    console.log(`   revert 不校验目标当前内容，只做 copyFileSync —— 旧备份会把宿主盖回旧状态。`);
+    console.log(`   先看清会改什么：node engine/cli.mjs revert --dry`);
+    for (const r of stale.slice(0, 8)) console.log(`   旧备份: ${r.file}`);
+  }
   for (const r of res.restored) console.log(`  ✓ ${r.file}`);
   for (const s of res.skipped) console.log(`  – ${s.file} (${s.reason})`);
 }

@@ -51,6 +51,27 @@ privesc / lateral）在 v4-pro 和 glm-5.3 上，**拒绝率 = 0.0%** ——
 把 `提示词/pierce-prompt.md` 直接当 system message 用，效果和第二列的数字一样。
 宿主层（③）只贡献约 1pt（P0/P2 实测），它的价值在工程性（不改源码、可热切、可回滚），不在破甲强度。
 
+### `engine/` 是 legacy 路径，默认禁用
+
+`engine/` 是早期的「声明式补丁表」实现：读 `tables/purge-1.1.71.json` + `pierce-0.2.2.json` + `pierce-obsolete.json` 三张表，
+按文本锚点直接改宿主源文件。它服务的是「宿主升级后自动重锚」这个目标，也是将来
+走到非 DSH 环境时的候选载体。
+
+**但它的方向和现在的路线相反。** 现在 pierce 靠宿主官方扩展点 + profile 配置覆盖工作，
+宿主源码已经撤到接近官方原样（2026-11-17 完成四批回滚）。在这台机器上跑一次
+`dsh-pierce apply`，会把 29 条 pending 的 purge 补丁重新打回去，一条命令抹掉四批回滚。
+
+所以 `apply` **默认拒绝执行**（退出码 3），并先把会打什么打印出来：
+
+```console
+$ dsh-pierce apply
+⛔ apply 已默认禁用：这个动作会把 dsh-purge 的源码补丁打回宿主。
+   会打上的  pending=29 条   already=18   partial=12
+   先看会打什么：  node engine/cli.mjs apply --dry --force-legacy
+```
+
+真要走 legacy 必须显式 `--force-legacy`。`status` / `revert` / `drift` 不受影响。
+
 ### 为什么挂在扩展点而不是改源码
 
 `dsh-purge` 的工作方式是改宿主源文件（190 条文本锚点 + 82 条补丁），宿主一升级就大面积漂移。
@@ -219,16 +240,22 @@ pierce 在 DSH 里的实现用的是官方 `system-prompt/assemble` 钩子返回
 ## 开发
 
 ```bash
-# 单测（52 项）
+# 单测（83 项）
 node --test test/plugin.test.mjs
 
-# 宿主层 E2E（在干净安装上跑，12 项）
-node scripts/e2e-verify.mjs
+# 宿主层 E2E（在干净安装 /opt/dsh-clean 上跑，13 项）
+PIERCE_E2E_DIR=/root/pierce-e2e node scripts/e2e-verify.mjs
 
-# 破甲效果测试
+# 线上宿主自检（30 项：服务 / 源码层 / 配置层 YAML 0 差异 / 运行时真实请求体）
+node scripts/post-restart-verify.mjs
+
+# 审批链路对称性（pierce 开 vs 关，6 项）
+node scripts/verify-approval-chain.mjs
+
+# 破甲效果测试（注意：--n 不控制规模，--subset 才控制探针数）
 cd test/refusal
-node p2-pure-prompt.mjs --model deepseek-v4-pro --n 3 --rounds 2 --groups AB
-node p2-pure-prompt.mjs --model glm-5.3 --groups ABDE --n 1 --rounds 3 --subset 24
+node p2-pure-prompt.mjs --model deepseek-v4-pro --groups ABE --subset 24 --rounds 2
+node p2-pure-prompt.mjs --model glm-5.3 --groups ABE --subset 24 --rounds 2
 node floor-retest.mjs --model glm-5.3 --rounds 5
 node reframe-variants.mjs --model kimi-k3.1-pro --rounds 2
 ```
@@ -247,6 +274,8 @@ node reframe-variants.mjs --model kimi-k3.1-pro --rounds 2
 | [统计方法修正](docs/统计方法修正.md) | **显著性判断的修正**，必读 |
 | [pierce-vs-purge对照](docs/pierce-vs-purge对照.md) | 与 dsh-purge 的差异 |
 | [成功定义与成本模型](docs/成功定义与成本模型.md) | 怎么衡量「破甲成功」 |
+| [P2复测-四模型](docs/P2复测-四模型.md) | **撤补丁后的四模型复测**：三套口径 + 截断偏差 + 上游拦截排查 |
+| [撤补丁进度](docs/撤补丁进度.md) | 四批回滚的完整记录 + 为什么保留剩余补丁 |
 
 ## 与 dsh-purge 的关系
 
