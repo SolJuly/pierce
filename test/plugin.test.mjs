@@ -111,11 +111,48 @@ console.log("[5] 身份清洗 + 提示词重挂");
     ],
   }));
   const id = result.sections.find((s) => s.name === "harness:identity");
-  ok("harness:identity 被清空", id && id.text === "");
+  ok("harness:identity 不见了", !id);
   ok("工具段原样保留", result.sections.some((s) => s.name === "tool:bash" && s.text === "Run commands"));
   const bodies = result.sections.filter((s) => s.name === "pierce:body");
   ok("pierce:body 只有一份（不重复叠加）", bodies.length === 1);
   ok("pierce:body 是当前正文", bodies[0].text.includes("LX 的搭档"));
+}
+
+console.log("[5a] persona 前缀清洗（替代 purge 改 9 个 bundle YAML）");
+{
+  const { ctx, handlers } = makeCtx();
+  plugin.apply(ctx, {});
+  const h = handlers.get("system-prompt/assemble");
+  const run = (sections) => h({}, {}, async () => ({ sections, contexts: [] }));
+
+  const out = await run([
+    { name: "harness:identity", text: "You are an AI agent powered by DeepSeek Harness." },
+    { name: "deployment:persona-prefix", text: "You are a coding agent powered by the {{model}} model." },
+    { name: "deployment:persona-suffix", text: "Your working directory is /root/work." },
+    { name: "tools:catalog", text: "tool catalog" },
+  ]);
+  const pre = out.sections.find((s) => s.name === "deployment:persona-prefix");
+  ok("deployment:persona-prefix 被删掉", !pre);
+  ok(
+    "harness:identity 也被删掉",
+    !out.sections.some((s) => s.name === "harness:identity"),
+  );
+  ok(
+    "persona-suffix 不动（宿主给的真实信息留原样）",
+    out.sections.find((s) => s.name === "deployment:persona-suffix").text.includes("/root/work"),
+  );
+  ok("工具段原样保留", out.sections.some((s) => s.name === "tools:catalog"));
+  // 注意：删段和置空渲染出的字节完全一样（renderPrompt 会先 filter 掉空串再
+  // join），所以这里断言的是「不见了」，而不是「变成空串」。
+
+  // 配置成空表 = 不清理，行为应等于官方
+  const { ctx: c2, handlers: h2 } = makeCtx();
+  plugin.apply(c2, { personaStrips: [] });
+  const out3 = await h2.get("system-prompt/assemble")({}, {}, async () => ({
+    sections: [{ name: "deployment:persona-prefix", text: "official prefix" }],
+    contexts: [],
+  }));
+  ok("personaStrips:[] 时不碰 persona 段", out3.sections[0].text === "official prefix");
 }
 
 console.log("[5b] 审批提示句运行期改写（对应 purge #5/#11/#12）");
@@ -171,7 +208,7 @@ console.log("[7] 真实装配落位（仿宿主 section 结构）");
   ok("注入段存在", !!body);
   ok("order = 5100（工具说明之后）", body.order === 5100);
   ok("注入段在最后（不被后续段落挤走）", out.sections[out.sections.length - 1].name === "pierce:body");
-  ok("harness:identity 被清空", out.sections.find((s) => s.name === "harness:identity").text === "");
+  ok("harness:identity 不见了", !out.sections.some((s) => s.name === "harness:identity"));
   const total = out.sections.reduce((a, s) => a + String(s.text || "").length, 0);
   const share = (body.text.length / total) * 100;
   // 占比取决于 prompt-inject.md 的实际大小（本测试用的是临时小文件），

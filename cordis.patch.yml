@@ -1,24 +1,24 @@
 # dsh-pierce bundle patch
 #
-# 只做两件事：
-#   1) 关掉官方的 harness 身份段（不然两段身份打架）；
-#   2) 把 dsh-pierce 插进树里。
+# 只做一件事：把 dsh-pierce 插进宿主树里。
 #
-# ⚠ dsh-app-boot 的 applyPatches 对 config 是**整体替换**不是深合并：
-#    你改一个字段，必须把该插件 config 的所有字段写全，漏写的会变 undefined。
-#    下面 system-prompt 的四个字段一个都不能少。
-
-- id: system-prompt
-  config:
-    includeHarnessIdentity: false
-    includeRuntimeContext: true
-    personaPrefix: ""
-    # 不要在这里用 {{cwd}}：官方只注册 provider/model 两个 prompt 变量，
-    # 未注册的引用会让装配直接抛 UNKNOWN，每个 turn 死在第 1 步。
-    #
-    # 工作目录信息由宿主自己的 runtime context（working-directory）提供，
-    # 不需要在 personaSuffix 里重复一遍。
-    personaSuffix: ""
+# 这里**不再**覆盖 system-prompt 的 config。
+#
+# 以前这里写着
+#     includeHarnessIdentity: false / personaPrefix: "" / personaSuffix: ""
+# 那是照 dsh-purge 的做法：用配置把「身份段」提前抹掉。问题是这种抹法只能管住
+# **本部署的 web app** —— 同一个宿主还有 acp / headless / sdk-app / sdk-minimal
+# 四个 app bundle，以及 presets 下的 4 个 preset，各有一份自己的 personaPrefix，
+# 当年的结果是同一条改动被抄到 9 个 YAML 里（改发行物）。
+#
+# 现在改由插件在运行期做，见 lib/index.js 的 stripIdentity / personaStrips：
+#     harness:identity          "You are an AI agent powered by DeepSeek Harness."
+#     deployment:persona-prefix "You are a coding agent powered by the {{model}} model."
+# 好处是：一处代码管住全部 app 和 preset；而且 /pierce off 之后身份会自动还原成
+# 官方原样，不需要回滚配置。
+#
+# 还有一条要知道的：dsh-app-boot 的 applyPatches 对 config 是**整体替换**不是深合并。
+# 不覆盖就不会丢字段，所以对 system-prompt 什么都不写反而是最安全的。
 
 - insert:
     - id: pierce
