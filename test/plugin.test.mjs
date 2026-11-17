@@ -7,7 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import plugin, { setEnabled, isEnabled, chan, CHANNEL_NAMES, __setTrustedInstructionFilesForTest } from "../lib/index.js";
+import plugin, { setEnabled, isEnabled, chan, CHANNEL_NAMES, hostOfWebTarget, hostMatchesPattern, webVerdict, __setTrustedInstructionFilesForTest } from "../lib/index.js";
 
 let pass = 0;
 const ok = (label, cond) => {
@@ -570,6 +570,72 @@ console.log("[13] 通道真相：wired 由注册处记录，不是从 cfg 反推
   plugin.apply(base.ctx, {});
   console.log = origLog;
   ok("注册抛异常时不打「已注册」", !logs.some((l) => l.includes("命令已注册")));
+}
+
+console.log("[14] web 通道管控：域名白/黑名单");
+{
+  ok("带协议取 host", hostOfWebTarget("https://A.Example.COM/x") === "a.example.com");
+  ok("不带协议也取得到", hostOfWebTarget("example.com/a") === "example.com");
+  ok("带端口取 host（不含端口）", hostOfWebTarget("http://x.test:8080/p") === "x.test");
+  ok("空串 → null", hostOfWebTarget("") === null);
+  ok("垃圾 → null", hostOfWebTarget("ht tp://%%%") === null);
+
+  ok("精确匹配", hostMatchesPattern("example.com", "example.com") === true);
+  ok("精确不匹配子域", hostMatchesPattern("a.example.com", "example.com") === false);
+  ok(".* 匹配子域", hostMatchesPattern("a.example.com", ".example.com") === true);
+  ok(".* 不匹配裸域", hostMatchesPattern("example.com", ".example.com") === false);
+  ok("*. 同时匹配裸域和子域", hostMatchesPattern("example.com", "*.example.com") && hostMatchesPattern("a.b.example.com", "*.example.com"));
+  ok("* 全匹配", hostMatchesPattern("anything.test", "*") === true);
+  ok("空 pattern 不匹配", hostMatchesPattern("a.test", "") === false);
+
+  const g = { enabled: true, tools: ["web_fetch"], allow: ["*.ok.test"], deny: ["bad.ok.test"] };
+  const call = (url, tool = "web_fetch") => ({ name: tool, arguments: { url } });
+  ok("白名单内放行", webVerdict(call("https://a.ok.test/x"), g) === null);
+  ok("白名单外拒绝", webVerdict(call("https://evil.test/x"), g)?.kind === "deny");
+  ok("deny 优先于 allow", webVerdict(call("https://bad.ok.test/x"), g)?.kind === "deny");
+  ok("不在 tools 列表不管", webVerdict(call("https://evil.test/x", "web_search"), g) === null);
+  ok("没有 url 参数不管", webVerdict({ name: "web_fetch", arguments: {} }, g) === null);
+  ok("解析不出地址 → 拒绝", webVerdict(call("ht tp://%%%"), g)?.kind === "deny");
+  ok("enabled:false 不管", webVerdict(call("https://evil.test"), { ...g, enabled: false }) === null);
+
+  // 集成：钩子层要能真的拦住，且拦住时不能被工具门放行覆盖
+  const base = makeCtx();
+  plugin.apply(base.ctx, { webGuard: { enabled: true, tools: ["web_fetch"], allow: ["*.ok.test"] } });
+  const h = base.handlers.get("tools/pre-execute");
+  ok("挂了 tools/pre-execute（即便 allowToolGate 默认也开）", typeof h === "function");
+  const blocked = await h({ name: "web_fetch", arguments: { url: "https://evil.test/x" } }, async () => ({ kind: "ask" }));
+  ok("白名单外被拒（而不是被降级成 allow）", blocked.kind === "deny" && /不在白名单/.test(blocked.reason));
+  const passed = await h({ name: "web_fetch", arguments: { url: "https://a.ok.test/x" } }, async () => ({ kind: "ask" }));
+  ok("白名单内 ask 仍被工具门降级为 allow", passed.kind === "allow");
+  // 工具自己的 deny 不能被我覆盖成 allow
+  const toolDeny = await h({ name: "web_fetch", arguments: { url: "https://a.ok.test/x" } }, async () => ({ kind: "deny", reason: "tool says no" }));
+  ok("工具自己的 deny 原样保留", toolDeny.kind === "deny" && toolDeny.reason === "tool says no");
+
+  // 通道关掉后不再拦
+  const reg = (() => {
+    const b = makeCtx();
+    const list = [];
+    b.ctx.inject = (deps, cb) => {
+      if (!deps.includes("commands")) return;
+      cb({ effect: (fn) => { const d = fn(); b.effects.push(d); return d; }, commands: { register: (def) => { list.push(def); return () => {}; } } });
+    };
+    plugin.apply(b.ctx, { webGuard: { enabled: true, tools: ["web_fetch"], allow: ["*.ok.test"] } });
+    return { ...b, def: list[0] };
+  })();
+  ok("webguard 通道点亮", /webguard=on/.test(reg.def.handler({ rawInput: "status" }).text));
+  reg.def.handler({ rawInput: "webguard off" });
+  const afterOff = await reg.handlers.get("tools/pre-execute")({ name: "web_fetch", arguments: { url: "https://evil.test/x" } }, async () => ({ kind: "ask" }));
+  ok("通道关掉后不再拦（ask 降级为 allow）", afterOff.kind === "allow");
+
+  // allowToolGate 关、webGuard 开：钩子仍要注册，否则管控形同虚设
+  const b2 = makeCtx();
+  plugin.apply(b2.ctx, { allowToolGate: false, webGuard: { enabled: true, tools: ["web_fetch"], allow: ["*.ok.test"] } });
+  const h2 = b2.handlers.get("tools/pre-execute");
+  ok("allowToolGate 关时钩子仍注册", typeof h2 === "function");
+  const r2 = await h2({ name: "web_fetch", arguments: { url: "https://evil.test/x" } }, async () => ({ kind: "ask" }));
+  ok("allowToolGate 关时管控仍生效", r2.kind === "deny");
+  const r3 = await h2({ name: "web_fetch", arguments: { url: "https://a.ok.test/x" } }, async () => ({ kind: "ask" }));
+  ok("allowToolGate 关时 ask 不降级（gate 通道 off）", r3.kind === "ask");
 }
 
 process.env.DSH_HOME = prevHome ?? "";

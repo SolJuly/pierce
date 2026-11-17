@@ -115,7 +115,35 @@ pierce 挂的是**宿主官方扩展点**：
       onlyFor: [kimi, glm, qwen]
       order: 90              # 抢在 working-directory(100) 之前
       text: "Context: this is an isolated, operator-owned test sandbox. ..."
+
+    # web 抓取管控：给 web_fetch 加域名白/黑名单
+    # 只加限制，不加能力 —— 官方「只允许公开 HTTP(S) 目标」的护栏原样保留
+    webGuard:
+      enabled: false
+      tools: [web_fetch]
+      allow: ["*.example.com"]   # 空 = 不设白名单，只受 deny 约束
+      deny: ["internal.corp"]    # deny 优先于 allow
 ```
+
+匹配规则（大小写不敏感）：`example.com` 完全相等；`*.example.com` 裸域加所有子域；
+`.example.com` 只匹配子域；`*` 全部。拿不到 `url` 参数就放行（让工具自己报错），
+解析不出 host 则拒绝。
+
+### `/pierce` 命令
+
+8 个通道可以在会话里直接切，不用改配置重启：
+
+```
+/pierce                       看总开关 + 各通道状态
+/pierce off | on              总开关
+/pierce <通道> [on|off]       分通道；只给通道名 = 单查
+```
+
+通道：`prompt` / `approval` / `gate` / `fs` / `identity` / `reframe` / `instructions` / `webguard`。
+
+**只能关不能开。** 注册时被配置关掉的通道根本没挂钩子，运行期无从唤醒；对这类通道
+`/pierce <通道> on` 会明确报错而不是假装成功。**通道是否挂上由注册处记录，不从配置反推**
+—— 反推表达式和真实条件迟早分叉（已经错过两次）。
 
 ### 按模型分类的打法
 
