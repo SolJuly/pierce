@@ -8,6 +8,12 @@
  *   node engine/cli.mjs revert [--dry] [--only 1,4,25]
  *   node engine/cli.mjs drift  [--out ref/drift.json]
  *   node engine/cli.mjs baseline <目标目录>   # 复制宿主原貌，供离线测试
+ *   node engine/cli.mjs image  (--text 文本 | --in 文件 | --in -) --out 图片.png
+ *          [--template plain|document|terminal] [--title 标题]
+ *          [--width 900] [--font-size 26] [--padding 40] [--max-height 1800]
+ *          [--svg] [--json]
+ *      # 把任意文本渲染成 PNG 载体，供「图片注入通道」实验用。
+ *      # 依赖 sharp（宿主 node_modules 自带）；找不到时退出码 2。
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -205,9 +211,92 @@ function cmdBaseline(o) {
 
 const o = args();
 const cmd = process.argv[2];
-const table = { status: cmdStatus, apply: cmdApply, revert: cmdRevert, drift: cmdDrift, baseline: cmdBaseline };
+
+/**
+ * 把文本渲染成图片载体。
+ *
+ * 这是「图片注入通道」的离线入口：宿主用 `read_image` 读图片时，只给模型一段
+ * `<path>/<type>image/` 信封加上 image block，**没有任何降权声明** —— 对比
+ * `web_fetch` 的 EXTERNAL_WEB_CONTENT_NOTICE 和 `read` 的行号包裹，这是工具层
+ * 防护最薄的入口。本命令负责生产走这个入口的载体。
+ *
+ * 排版在 lib/image-render.js 里，纯函数 + sharp 光栅化；这里只做 IO 与参数解析。
+ */
+async function cmdImage(o) {
+  const { renderTextToPng, TEMPLATES, imageRenderAvailable } = await import("../lib/image-render.js");
+  let text;
+  if (typeof o.text === "string") text = o.text;
+  else if (o.in === "-") text = fs.readFileSync(0, "utf8");
+  else if (typeof o.in === "string") text = fs.readFileSync(o.in, "utf8");
+  else {
+    console.error("image: 需要 --text <文本> 或 --in <文件|->");
+    process.exit(1);
+  }
+  const opts = {};
+  if (typeof o.template === "string") {
+    if (!TEMPLATES.includes(o.template)) {
+      console.error(`image: 未知模板 "${o.template}"，可用：${TEMPLATES.join(" / ")}`);
+      process.exit(1);
+    }
+    opts.template = o.template;
+  }
+  if (typeof o.title === "string") opts.title = o.title;
+  for (const [flag, key] of [["width", "width"], ["font-size", "fontSize"], ["padding", "padding"], ["max-height", "maxHeight"]]) {
+    if (o[flag] === undefined) continue;
+    const value = Number(o[flag]);
+    if (!Number.isFinite(value)) {
+      console.error(`image: --${flag} 需要数字，收到 ${JSON.stringify(o[flag])}`);
+      process.exit(1);
+    }
+    opts[key] = value;
+  }
+
+  if (!(await imageRenderAvailable())) {
+    console.error("image: 找不到 sharp，无法光栅化（设 PIERCE_SHARP 指向 sharp 的 ESM 入口）");
+    process.exit(2);
+  }
+  const out = typeof o.out === "string" ? o.out : "carrier.png";
+  let result;
+  try {
+    result = await renderTextToPng(text, opts);
+  } catch (error) {
+    console.error(`image: ${error?.message ?? error}`);
+    process.exit(1);
+  }
+  fs.mkdirSync(path.dirname(path.resolve(out)), { recursive: true });
+  fs.writeFileSync(out, result.png);
+  if (o.svg) {
+    const svgPath = out.replace(/\.png$/i, "") + ".svg";
+    fs.writeFileSync(svgPath, result.svg);
+  }
+  if (o.json) {
+    console.log(JSON.stringify({
+      out,
+      bytes: result.png.length,
+      width: result.width,
+      height: result.height,
+      lines: result.lines,
+      template: result.template,
+      fontFamily: result.fontFamily,
+    }, null, 2));
+  } else {
+    console.log(
+      `已生成 ${out}  ${result.width}x${result.height}  ${result.lines} 行  ` +
+        `${result.png.length} 字节  模板=${result.template}  字体=${result.fontFamily}`,
+    );
+  }
+}
+
+const table = {
+  status: cmdStatus,
+  apply: cmdApply,
+  revert: cmdRevert,
+  drift: cmdDrift,
+  baseline: cmdBaseline,
+  image: cmdImage,
+};
 if (!table[cmd]) {
   console.log(fs.readFileSync(fileURLToPath(import.meta.url), "utf8").split("*/")[0]);
   process.exit(1);
 }
-table[cmd](o);
+await table[cmd](o);

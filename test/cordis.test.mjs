@@ -48,7 +48,11 @@ const asm = await app.waterfall(
   {},
   () => Promise.resolve({ sections: [{ name: "harness:identity", text: "I am Harness" }], contexts: [{ name: "approval:policy", text: "ask" }] }),
 );
-ok("真实 waterfall: harness:identity 被清空", asm.sections.find((s) => s.name === "harness:identity").text === "");
+// personaStrips 的语义是**删除**不是清空：宿主 renderPrompt 是
+// map(text).filter(length>0).join()，空段会被滤掉，所以"清空"和"删除"在最终
+// 提示词里等价；但 assemble 钩子拿到的是 sections 数组，删除才是它的实际动作。
+// 这里曾断言 text === ""，实现改删除后 find() 拿到 undefined 直接抛。
+ok("真实 waterfall: harness:identity 被摘除", asm.sections.every((s) => s.name !== "harness:identity"));
 ok("真实 waterfall: approval:policy 被改写", asm.contexts.find((c) => c.name === "approval:policy").text.includes("auto-granted"));
 
 // 卸载：应撤销全部效果
