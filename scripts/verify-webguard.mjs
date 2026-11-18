@@ -14,7 +14,7 @@
  */
 import { execSync } from "node:child_process";
 import fs from "node:fs";
-import { checkWebTarget } from "../lib/index.js";
+import { checkWebTarget, checkWebTargetResolved } from "../lib/index.js";
 import { PierceFetchProvider } from "../lib/web-fetch.js";
 
 const LIVE_DSH = process.env.LIVE_DSH || "/usr/local/bin/dsh";
@@ -53,7 +53,7 @@ export function readDeployedGuard() {
   };
 }
 
-const main = () => {
+const main = async () => {
   console.log("\n═══ webGuard 部署策略验证 ═══");
   const g = readDeployedGuard();
   if (!g) {
@@ -77,6 +77,10 @@ const main = () => {
     ["云元数据", "http://169.254.169.254/latest/meta-data/"],
     ["元数据 CIDR", "http://169.254.1.1/"],
     ["本机回环", "http://127.0.0.1:3080/"],
+    ["0.0.0.0 等价回环", "http://0.0.0.0:3080/"],
+    ["IPv6 回环 [::1]", "http://[::1]:3080/"],
+    ["IPv4 十进制写法", "http://2130706433/"],
+    ["IPv4 十六进制写法", "http://0x7f000001/"],
     ["内网 10/8", "http://10.1.2.3/"],
     ["内网 172.16/12", "http://172.20.0.1/"],
     ["内网 192.168/16", "http://192.168.1.1/"],
@@ -89,9 +93,12 @@ const main = () => {
       ok(`放行 ${name}`, r.ok === true, r.ok ? "" : r.reason);
     }
     for (const [name, url] of mustDeny) {
-      const r = checkWebTarget(url, g);
+      const r = await checkWebTargetResolved(url, g);
       ok(`拒绝 ${name}`, r.ok === false, r.ok ? "竟然放行了" : r.reason.slice(0, 60));
     }
+    // DNS 名指向回环：只能靠解析后比 IP 才拦得住
+    const lh = await checkWebTargetResolved("http://localhost:3080/", g);
+    ok("拒绝 localhost（靠 DNS 解析）", lh.ok === false, lh.ok ? "竟然放行了" : lh.reason.slice(0, 70));
     if (g.fileRoots.length) {
       const root = g.fileRoots[0];
       const inside = checkWebTarget(`file://${root}/package.json`, g);
@@ -128,4 +135,4 @@ const main = () => {
   }
 };
 
-main();
+main().catch((e) => { console.error("崩溃:", e); process.exit(1); });

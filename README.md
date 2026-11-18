@@ -126,8 +126,54 @@ pierce 挂的是**宿主官方扩展点**：
 ```
 
 匹配规则（大小写不敏感）：`example.com` 完全相等；`*.example.com` 裸域加所有子域；
-`.example.com` 只匹配子域；`*` 全部。拿不到 `url` 参数就放行（让工具自己报错），
-解析不出 host 则拒绝。
+`.example.com` 只匹配子域；`*` 全部；`10.0.0.0/8` / `fc00::/7` 这类 CIDR 走网段匹配。
+拿不到 `url` 参数就放行（让工具自己报错），解析不出 host 则拒绝。
+
+判定顺序固定三层，**不能换**：
+
+```
+① scheme    allowSchemes，默认 [http, https]；file:// 必须显式加
+② file      fileRoots 路径校验（realpath 之后比前缀，防 .. 和符号链接穿透）
+③ host      deny 优先于 allow；支持 IPv4/IPv6 字面量与 CIDR
+```
+
+### deny 会先解析 DNS 再比
+
+**这一层不做就等于没做。** deny 如果只比字符串，下面这些写法全部能绕过（实测都能真连上本机）：
+
+```
+http://localhost:3080/          → 解析到 127.0.0.1
+http://0.0.0.0:3080/            → Linux 上等价回环
+http://[::1]:3080/              → IPv6 回环
+http://127.0.0.1.nip.io:3080/   → 任意 DNS 名指向回环
+```
+
+所以判定时会 `dns.lookup(host, {all:true})`，把返回的**每个 IP** 都过一遍 deny。
+字面 IP 不用解析，直接比。DNS 解析失败按放行处理（目标本来就不可达，且 DNS 抖动
+不该误伤正常抓取）。
+
+`0x7f000001` / `2130706433` / `127.1` 这些写法不需要特殊处理 —— WHATWG URL 会先
+归一成 `127.0.0.1`。
+
+### `file://` 的路径防护
+
+`fileRoots` 是 `file://` 唯一的防线，做了三件事：
+
+1. `..` 穿越 —— 先 `path.resolve` 归一，再比前缀
+2. 目录符号链接 —— `realpath` 之后比前缀
+3. **文件本身是符号链接** —— 文件存在时对整条路径做 `realpath`，跟着链接走再比
+
+校验返回的 `realPath` 会交给 provider **实际打开那个路径**，不是重新解析原 URL ——
+否则「检查用 realpath、读取用原路径」之间留一个符号链接替换窗口。
+
+### ⚠ webGuard 管不住 bash
+
+**这是最重要的一条限制。** webGuard 只挂在 `web_fetch` 工具的 `tools/pre-execute` 上。
+模型用 `bash` 跑 `curl` / `wget` 完全不经过这一层，deny 名单、fileRoots、scheme 规则
+统统不生效。
+
+想让 bash 也受限，得靠沙箱层（`sandbox-policy` / 网络命名空间），不是这里。
+把 webGuard 当成「web_fetch 这一条通道的护栏」，不要当成全局网络管控。
 
 ### 自己的 fetch provider（放开协议与重定向）
 

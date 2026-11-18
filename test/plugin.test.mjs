@@ -14,7 +14,7 @@ import { assertHopAllowed } from "../lib/web-guard.js";
 import plugin, {
   setEnabled, isEnabled, chan, CHANNEL_NAMES,
   hostOfWebTarget, hostMatchesPattern, webVerdict,
-  checkWebTarget, ipv4InCidr,
+  checkWebTarget, checkWebTargetResolved, validateGuardConfig, ipv4InCidr, ipv6InCidr, parseIPv6,
   __setTrustedInstructionFilesForTest,
 } from "../lib/index.js";
 
@@ -599,13 +599,13 @@ console.log("[14] web 通道管控：域名白/黑名单");
 
   const g = { enabled: true, tools: ["web_fetch"], allow: ["*.ok.test"], deny: ["bad.ok.test"] };
   const call = (url, tool = "web_fetch") => ({ name: tool, arguments: { url } });
-  ok("白名单内放行", webVerdict(call("https://a.ok.test/x"), g) === null);
-  ok("白名单外拒绝", webVerdict(call("https://evil.test/x"), g)?.kind === "deny");
-  ok("deny 优先于 allow", webVerdict(call("https://bad.ok.test/x"), g)?.kind === "deny");
-  ok("不在 tools 列表不管", webVerdict(call("https://evil.test/x", "web_search"), g) === null);
-  ok("没有 url 参数不管", webVerdict({ name: "web_fetch", arguments: {} }, g) === null);
-  ok("解析不出地址 → 拒绝", webVerdict(call("ht tp://%%%"), g)?.kind === "deny");
-  ok("enabled:false 不管", webVerdict(call("https://evil.test"), { ...g, enabled: false }) === null);
+  ok("白名单内放行", await webVerdict(call("https://a.ok.test/x"), g) === null);
+  ok("白名单外拒绝", (await webVerdict(call("https://evil.test/x"), g))?.kind === "deny");
+  ok("deny 优先于 allow", (await webVerdict(call("https://bad.ok.test/x"), g))?.kind === "deny");
+  ok("不在 tools 列表不管", await webVerdict(call("https://evil.test/x", "web_search"), g) === null);
+  ok("没有 url 参数不管", await webVerdict({ name: "web_fetch", arguments: {} }, g) === null);
+  ok("解析不出地址 → 拒绝", (await webVerdict(call("ht tp://%%%"), g))?.kind === "deny");
+  ok("enabled:false 不管", await webVerdict(call("https://evil.test"), { ...g, enabled: false }) === null);
 
   // 集成：钩子层要能真的拦住，且拦住时不能被工具门放行覆盖
   const base = makeCtx();
@@ -771,13 +771,13 @@ console.log("[16] 重定向逐跳校验（修 webGuard 的绕过漏洞）");
   bad.close();
 
   // 5) file:// 的语义（v2：必须显式开协议 + 配路径根目录）
-  const tries = (u, g) => { try { assertHopAllowed(u, g); return null; } catch (e) { return e.message; } };
+  const tries = async (u, g) => { try { await assertHopAllowed(u, g); return null; } catch (e) { return e.message; } };
   ok("file:// 默认被拒（没开 allowSchemes）",
-    /协议 file: 不在允许范围/.test(String(tries("file:///etc/passwd", { enabled: true, allow: [], deny: [] }) ?? "")));
+    /协议 file: 不在允许范围/.test(String((await tries("file:///etc/passwd", { enabled: true, allow: [], deny: [] }) ?? ""))));
   ok("file:// 开了协议但没配 fileRoots → 拒",
-    /未配置 fileRoots/.test(String(tries("file:///etc/passwd", {
+    /未配置 fileRoots/.test(String((await tries("file:///etc/passwd", {
       enabled: true, allowSchemes: ["http", "https", "file"], fileRoots: [], allow: [], deny: [],
-    }) ?? "")));
+    }) ?? ""))));
 
   // 6) provider 直调也受护栏 —— 覆盖"别的插件绕开工具闸"
   const p6 = new PierceFetchProvider({ guard: { enabled: true, allow: ["only.test"], deny: [] } });
@@ -859,6 +859,63 @@ console.log("[17] web 管控 v2：scheme 规则 + file 路径白名单 + CIDR");
 
   fs.rmSync(scope, { recursive: true, force: true });
   fs.rmSync(outside, { recursive: true, force: true });
+}
+
+console.log("[18] 绕过手法的封堵（审核实测能通的写法）");
+{
+  // 审核实测：deny 只做字面匹配时，下面这些都能真连上本机。
+  // 修法是把域名解析成 IP 再比 deny（checkWebTargetResolved）。
+  const g = {
+    enabled: true,
+    allowSchemes: ["http", "https", "file"],
+    fileRoots: [],
+    allow: [],
+    deny: ["127.0.0.0/8", "::1/128", "169.254.0.0/16", "fc00::/7", "fe80::/10", "0.0.0.0/8"],
+  };
+  const chk = async (u) => checkWebTargetResolved(u, g);
+  const why = async (u) => { const r = await chk(u); return r.ok ? null : r.reason; };
+
+  // IPv6 字面量：上一版 hostOfWebTarget 给 "[::1]"，isIPv4 不认，直接放过
+  ok("IPv6 回环 [::1] 被拦", /命中拒绝名单/.test(String(await why("http://[::1]:3080/") ?? "")));
+  ok("IPv6 ULA fc00:: 被拦", /命中拒绝名单/.test(String(await why("http://[fc00::1]/") ?? "")));
+  ok("IPv6 link-local fe80:: 被拦", /命中拒绝名单/.test(String(await why("http://[fe80::1]/") ?? "")));
+  ok("公网 IPv6 不误伤", (await chk("http://[2001:db8::1]/")).ok === true);
+
+  // 0.0.0.0 在 Linux 上等价回环
+  ok("0.0.0.0 被拦", /命中拒绝名单/.test(String(await why("http://0.0.0.0:3080/") ?? "")));
+
+  // 字面 IPv4 之前就能拦（不依赖 DNS）
+  ok("字面 127.0.0.1 被拦", /命中拒绝名单/.test(String(await why("http://127.0.0.1:3080/") ?? "")));
+
+  // localhost 靠 DNS 解析成 127.0.0.1/::1 才拦得住
+  const lh = await why("http://localhost:3080/");
+  ok("localhost 被拦（靠 DNS 解析）", lh === null ? false : /解析到/.test(lh), String(lh ?? "竟然放行").slice(0, 70));
+
+  // 公网域名解析后不在 deny 里 → 放行
+  ok("公网域名不受解析影响", (await chk("https://example.com/x")).ok === true);
+
+  // IPv4 归一化写法：WHATWG URL 会归一成 127.0.0.1，仍要拦
+  for (const u of ["http://2130706433/", "http://0x7f000001/", "http://127.1/"]) {
+    ok(`归一化写法 ${u} 被拦`, /命中拒绝名单/.test(String(await why(u) ?? "")));
+  }
+
+  // 配置校验：写错的 CIDR 要告警，不能静默失效
+  const warns = validateGuardConfig({ deny: ["example.com/path", "10.0.0.0/8", "::1/128"], allowSchemes: ["file"], fileRoots: [] });
+  ok("非法 CIDR 被指出", warns.some((w) => w.includes("example.com/path")));
+  ok("合法 CIDR 不告警", !warns.some((w) => w.includes("10.0.0.0/8")));
+  ok("开了 file 但 fileRoots 空 → 告警", warns.some((w) => w.includes("fileRoots")));
+  ok("配置没问题时无告警", validateGuardConfig({ deny: ["10.0.0.0/8"], allowSchemes: ["http"], fileRoots: [] }).length === 0);
+
+  // file:// 用 realPath 读（闭合 TOCTOU）
+  const scope = fs.mkdtempSync(path.join(os.tmpdir(), "pierce-toc-"));
+  fs.writeFileSync(path.join(scope, "a.txt"), "REAL");
+  const fileGuard = { enabled: true, allowSchemes: ["file"], fileRoots: [scope], allow: [], deny: [] };
+  const prov = new PierceFetchProvider({ guard: fileGuard });
+  const got = await prov.fetch({ url: `file://${scope}/a.txt` });
+  ok("file:// 用 realPath 读取正常", got.body.content === "REAL");
+  const realp = await assertHopAllowed(`file://${scope}/a.txt`, fileGuard);
+  ok("assertHopAllowed 返回 realPath", typeof realp.realPath === "string" && realp.realPath.endsWith("a.txt"));
+  fs.rmSync(scope, { recursive: true, force: true });
 }
 
 process.env.DSH_HOME = prevHome ?? "";
