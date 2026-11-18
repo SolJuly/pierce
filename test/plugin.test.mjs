@@ -11,7 +11,12 @@ import net from "node:net";
 import { createHash } from "node:crypto";
 import { PierceFetchProvider, PIERCE_FETCH_PROVIDER_ID } from "../lib/web-fetch.js";
 import { assertHopAllowed } from "../lib/web-guard.js";
-import plugin, { setEnabled, isEnabled, chan, CHANNEL_NAMES, hostOfWebTarget, hostMatchesPattern, webVerdict, __setTrustedInstructionFilesForTest } from "../lib/index.js";
+import plugin, {
+  setEnabled, isEnabled, chan, CHANNEL_NAMES,
+  hostOfWebTarget, hostMatchesPattern, webVerdict,
+  checkWebTarget, ipv4InCidr,
+  __setTrustedInstructionFilesForTest,
+} from "../lib/index.js";
 
 let pass = 0;
 const ok = (label, cond) => {
@@ -765,15 +770,14 @@ console.log("[16] 重定向逐跳校验（修 webGuard 的绕过漏洞）");
   entry.close();
   bad.close();
 
-  // 5) 没有 host 的 scheme：file://
-  ok("file:// 配了白名单 → 拒绝（不能因为没 host 就放过）", (() => {
-    try { assertHopAllowed("file:///etc/passwd", { enabled: true, allow: ["a.com"], deny: [] }); return false; }
-    catch { return true; }
-  })());
-  ok("file:// 只有 deny 时放行", (() => {
-    try { assertHopAllowed("file:///etc/passwd", { enabled: true, allow: [], deny: ["x.com"] }); return true; }
-    catch { return false; }
-  })());
+  // 5) file:// 的语义（v2：必须显式开协议 + 配路径根目录）
+  const tries = (u, g) => { try { assertHopAllowed(u, g); return null; } catch (e) { return e.message; } };
+  ok("file:// 默认被拒（没开 allowSchemes）",
+    /协议 file: 不在允许范围/.test(String(tries("file:///etc/passwd", { enabled: true, allow: [], deny: [] }) ?? "")));
+  ok("file:// 开了协议但没配 fileRoots → 拒",
+    /未配置 fileRoots/.test(String(tries("file:///etc/passwd", {
+      enabled: true, allowSchemes: ["http", "https", "file"], fileRoots: [], allow: [], deny: [],
+    }) ?? "")));
 
   // 6) provider 直调也受护栏 —— 覆盖"别的插件绕开工具闸"
   const p6 = new PierceFetchProvider({ guard: { enabled: true, allow: ["only.test"], deny: [] } });
@@ -790,6 +794,71 @@ console.log("[16] 重定向逐跳校验（修 webGuard 的绕过漏洞）");
   let after = false;
   try { await p7.fetch({ url: "http://127.0.0.1:1/" }); } catch (e) { after = /不在白名单/.test(String(e.message)); }
   ok("guard 引用语义：/pierce webguard off 后逐跳校验立即失效", before === true && after === false);
+}
+
+console.log("[17] web 管控 v2：scheme 规则 + file 路径白名单 + CIDR");
+{
+  const scope = fs.mkdtempSync(path.join(os.tmpdir(), "pierce-fileroot-"));
+  fs.mkdirSync(path.join(scope, "docs"), { recursive: true });
+  fs.writeFileSync(path.join(scope, "docs", "page.html"), "<h1>ok</h1>");
+  // 根目录外放一个"敏感文件"，用来测穿越
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), "pierce-outside-"));
+  fs.writeFileSync(path.join(outside, "secret.txt"), "SECRET");
+  // 根目录内的符号链接 → 指向外面（这是最容易漏的坑）
+  try { fs.symlinkSync(path.join(outside, "secret.txt"), path.join(scope, "link-out.txt")); } catch { /* 平台不支持就跳过 */ }
+  const hasSymlink = fs.existsSync(path.join(scope, "link-out.txt"));
+
+  const guard = {
+    enabled: true,
+    allowSchemes: ["http", "https", "file"],
+    fileRoots: [scope],
+    allow: [],
+    deny: [],
+  };
+  const chk = (u, g = guard) => checkWebTarget(u, g);
+
+  // scheme
+  ok("https 放行", chk("https://example.com/x").ok === true);
+  ok("gopher 默认被拒（没开协议）", /协议 gopher: 不在允许范围/.test(chk("gopher://h:1/_x").reason));
+  ok("开了 gopher 才放行", chk("gopher://h:1/_x", { ...guard, allowSchemes: ["http", "https", "file", "gopher"] }).ok === true);
+  ok("协议名大小写/冒号写法都认", chk("ftp://x/y", { ...guard, allowSchemes: ["FTP:"] }).ok === true);
+
+  // file 路径
+  ok("根目录内的文件放行", chk(`file://${scope}/docs/page.html`).ok === true);
+  ok("根目录本身放行", chk(`file://${scope}`).ok === true);
+  ok("根目录外被拒", /不在允许的根目录内/.test(chk(`file://${outside}/secret.txt`).reason));
+  ok(".. 穿越被拒", /不在允许的根目录内/.test(chk(`file://${scope}/../../etc/passwd`).reason));
+  ok("编码穿越被拒", /不在允许的根目录内/.test(chk(`file://${scope}/%2e%2e/%2e%2e/etc/passwd`).reason));
+  if (hasSymlink) {
+    ok("根内符号链接指向外面被识破", /不在允许的根目录内/.test(chk(`file://${scope}/link-out.txt`).reason));
+  }
+  ok("不存在的文件在根内 → 放行（让 provider 报 ENOENT）", chk(`file://${scope}/docs/nope.html`).ok === true);
+
+  // CIDR
+  ok("CIDR 匹配 IPv4", ipv4InCidr("10.1.2.3", "10.0.0.0/8") === true);
+  ok("CIDR 不匹配边界外", ipv4InCidr("11.0.0.1", "10.0.0.0/8") === false);
+  ok("/32 精确匹配", ipv4InCidr("1.2.3.4", "1.2.3.4/32") === true);
+  ok("非法 CIDR 不抛，返回 false", ipv4InCidr("1.2.3.4", "1.2.3.4/99") === false);
+  ok("域名不会被 CIDR 误匹配", ipv4InCidr("example.com", "10.0.0.0/8") === false);
+  ok("deny 支持 CIDR", chk("http://10.5.5.5/x", { ...guard, deny: ["10.0.0.0/8"] }).ok === false);
+  ok("169.254.169.254 可被 CIDR 拦", chk("http://169.254.169.254/latest/meta-data/", { ...guard, deny: ["169.254.0.0/16"] }).ok === false);
+  ok("公网不受 CIDR 影响", chk("https://github.com/x", { ...guard, deny: ["169.254.0.0/16"] }).ok === true);
+
+  // 你的目标形态：公网照常 + 工作区 file + 拦元数据
+  const prod = {
+    enabled: true,
+    allowSchemes: ["http", "https", "file"],
+    fileRoots: ["/root/破甲开发"],
+    allow: [],                                  // 不设白名单 → 公网不断
+    deny: ["169.254.169.254", "123.207.74.155"],
+  };
+  ok("目标形态：公网照常", checkWebTarget("https://raw.githubusercontent.com/x", prod).ok === true);
+  ok("目标形态：工作区 file 放行", checkWebTarget("file:///root/破甲开发/docs/a.html", prod).ok === true);
+  ok("目标形态：工作区外 file 拒绝", checkWebTarget("file:///root/.dsh/.credentials.yaml", prod).ok === false);
+  ok("目标形态：云元数据拒绝", checkWebTarget("http://169.254.169.254/", prod).ok === false);
+
+  fs.rmSync(scope, { recursive: true, force: true });
+  fs.rmSync(outside, { recursive: true, force: true });
 }
 
 process.env.DSH_HOME = prevHome ?? "";
