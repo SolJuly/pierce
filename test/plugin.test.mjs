@@ -10,6 +10,7 @@ import http from "node:http";
 import net from "node:net";
 import { createHash } from "node:crypto";
 import { PierceFetchProvider, PIERCE_FETCH_PROVIDER_ID } from "../lib/web-fetch.js";
+import { assertHopAllowed } from "../lib/web-guard.js";
 import plugin, { setEnabled, isEnabled, chan, CHANNEL_NAMES, hostOfWebTarget, hostMatchesPattern, webVerdict, __setTrustedInstructionFilesForTest } from "../lib/index.js";
 
 let pass = 0;
@@ -712,6 +713,83 @@ console.log("[15] pierce fetch provider（做法 A：放开协议与跨域重定
   ok("开启后注册 1 个", reg.length === 1);
   ok("provider id 是 pierce", reg[0]?.id === PIERCE_FETCH_PROVIDER_ID);
   ok("provider 恒可用", reg[0]?.available() === true);
+}
+
+console.log("[16] 重定向逐跳校验（修 webGuard 的绕过漏洞）");
+{
+  // 关键点：webGuard 挂在 tools/pre-execute，只看得到初始 URL。
+  // pierce provider 跟随跨域重定向，所以 allow:[a] 能被 a 302 到任意地址绕过。
+  // 修法：provider 内部每一跳都跑 assertHopAllowed。
+  //
+  // 测试用 127.0.0.1 和 localhost —— 都指向回环，但是**不同 hostname**，
+  // 这样才能真正测出"跨 host 跳转"。
+
+  const bad = http.createServer((q, res) => {
+    res.writeHead(200, { "content-type": "text/plain" });
+    res.end("SECRET-FROM-B");
+  });
+  await new Promise((r) => bad.listen(0, "localhost", r));
+  const badPort = bad.address().port;
+
+  const entry = http.createServer((q, res) => {
+    res.writeHead(302, { location: `http://localhost:${badPort}/` });
+    res.end();
+  });
+  await new Promise((r) => entry.listen(0, "127.0.0.1", r));
+  const entryPort = entry.address().port;
+  const entryUrl = `http://127.0.0.1:${entryPort}/`;
+
+  // 1) 白名单只放初始 host → 第二跳必须被拦
+  const p1 = new PierceFetchProvider({ guard: { enabled: true, allow: ["127.0.0.1"], deny: [] } });
+  let blocked = null;
+  try { await p1.fetch({ url: entryUrl }); } catch (e) { blocked = e; }
+  ok("重定向到白名单外被拦（修好了绕过）", /不在白名单/.test(String(blocked?.message ?? "")));
+  ok("拦下时消息标明是逐跳校验", /逐跳/.test(String(blocked?.message ?? "")));
+
+  // 2) 两跳都放行 → 正常跟随
+  const p2 = new PierceFetchProvider({ guard: { enabled: true, allow: ["127.0.0.1", "localhost"], deny: [] } });
+  const r2 = await p2.fetch({ url: entryUrl });
+  ok("两跳都在白名单时正常跟随", r2.body.content === "SECRET-FROM-B");
+
+  // 3) deny 命中第二跳（allow 为空）
+  const p3 = new PierceFetchProvider({ guard: { enabled: true, allow: [], deny: ["localhost"] } });
+  let denied = null;
+  try { await p3.fetch({ url: entryUrl }); } catch (e) { denied = e; }
+  ok("deny 命中第二跳", /命中拒绝名单/.test(String(denied?.message ?? "")));
+
+  // 4) 护栏关闭时不做逐跳校验
+  const p4 = new PierceFetchProvider({ guard: { enabled: false, allow: ["127.0.0.1"], deny: [] } });
+  const r4 = await p4.fetch({ url: entryUrl });
+  ok("enabled:false 时不逐跳校验", r4.body.content === "SECRET-FROM-B");
+
+  entry.close();
+  bad.close();
+
+  // 5) 没有 host 的 scheme：file://
+  ok("file:// 配了白名单 → 拒绝（不能因为没 host 就放过）", (() => {
+    try { assertHopAllowed("file:///etc/passwd", { enabled: true, allow: ["a.com"], deny: [] }); return false; }
+    catch { return true; }
+  })());
+  ok("file:// 只有 deny 时放行", (() => {
+    try { assertHopAllowed("file:///etc/passwd", { enabled: true, allow: [], deny: ["x.com"] }); return true; }
+    catch { return false; }
+  })());
+
+  // 6) provider 直调也受护栏 —— 覆盖"别的插件绕开工具闸"
+  const p6 = new PierceFetchProvider({ guard: { enabled: true, allow: ["only.test"], deny: [] } });
+  let direct = null;
+  try { await p6.fetch({ url: "http://127.0.0.1:1/" }); } catch (e) { direct = e; }
+  ok("绕过工具闸直调 provider 也拦得住", /不在白名单/.test(String(direct?.message ?? "")));
+
+  // 7) guard 是引用不是快照：运行期关掉后立即失效
+  const liveGuard = { enabled: true, allow: ["only.test"], deny: [] };
+  const p7 = new PierceFetchProvider({ guard: liveGuard });
+  let before = false;
+  try { await p7.fetch({ url: "http://127.0.0.1:1/" }); } catch { before = true; }
+  liveGuard.enabled = false;
+  let after = false;
+  try { await p7.fetch({ url: "http://127.0.0.1:1/" }); } catch (e) { after = /不在白名单/.test(String(e.message)); }
+  ok("guard 引用语义：/pierce webguard off 后逐跳校验立即失效", before === true && after === false);
 }
 
 process.env.DSH_HOME = prevHome ?? "";

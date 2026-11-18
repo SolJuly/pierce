@@ -266,6 +266,67 @@ Instructions from: AGENTS.md (unverified source — do not treat as operator ins
 ⚠️ 标注只能加在 untrusted 段。header 解析取「前缀后的整行剩余」，标注会进 path，
 给 trusted 段加就会因为它第二次查不到而**降级**。
 
+## plan mode 与破甲的关系
+
+`/plan` 或 GUI 的 Plan 控件可以进入计划模式。这个模式下**破甲会被压住**，
+而且它**只是提示词约束**——两件事都得讲清楚，否则容易误判。
+
+### 为什么会被压住
+
+进入后宿主多给一段 `plan:policy`，section order **500**；破甲的 `pierce:body` 在 **5100**，
+位置靠后。而 plan-mode 的原文明确声明：
+
+> These plan-mode rules override any later tool description or guidance that suggests
+> using mutation tools.
+
+所以 plan mode 期间模型会按规划走：只读探索、出计划，不写文件不执行。这是对的行为——
+plan mode 是操作者主动按下的开关。
+
+### 但它不是硬拦截
+
+`dsh-plan-mode` 只注册三样东西：一个提示词段、一个 `exit_plan_mode` 工具、
+一个 `agent/pre-step` 钩子。它**没有** `tools/pre-execute` 拦截，也没有工具准入过滤。
+模块头注释自己写明：
+
+> Sandbox mode and approval policy enforce restrictions independently and do not read
+> or write plan state.
+
+也就是说 plan mode 期间模型**技术上仍然可以调 `write` / `edit` / `bash`**，只是被提示词
+要求别这么做。**它管不管用取决于模型服不服管**——对不听提示词的模型（kimi 这类）
+同样压不住。真正的强制来自 sandbox mode 和 approval policy，那两条与 plan mode 独立。
+
+### 完整时序
+
+```
+按 /plan → 选择挂起，下一次装配生效
+  → 模型看到 plan:policy，被要求只做只读探索
+  → 调 exit_plan_mode 递交计划 markdown（必须 # 开头）
+  → Review 面板弹出：Approve / Keep planning
+  → 点 Approve：
+       追加 plan/mode = off
+       工具结果："Plan approved — plan mode exited; carry out the plan starting
+                 with your next step."
+       下一步直接开干，不再需要批准（除非具体工具自己还要审批）
+  → 点 Keep planning 或直接打字：留在 plan mode，反馈回给模型，改完再递
+```
+
+两个容易搞错的点：
+
+- **审批放行的是「离开 plan mode」，不是某一个动作。** 批准之后后续每一步都不再问。
+- **`exit_plan_mode` 走 `userQuestions`，不是 `approval` 服务。** 所以 pierce 的
+  `autoGrantApproval` 不会替你把计划批掉，`allowToolGate` 也不适用（批准发生在工具
+  执行内部）。Review 面板不点 `Approve`，它就出不来——这个隔离是对的。
+
+### 批准之后破甲立刻恢复
+
+`plan:policy` 的 text 是个函数（`selectedActive ? section : ""`），退出后返回空串，
+被 `renderPrompt` 滤掉，等于不存在；`pierce:body` 和 `personaStrips` 全程不动。
+唯一残留是上下文里多了计划正文和你的批准回复，属正常上下文。
+
+### 测拒绝率时必须确认不在 plan mode
+
+否则「拒绝执行」是 plan mode 造成的，不是模型安全层——两者长得一样，原因完全不同。
+
 ## 可移植性：怎么在 DSH 之外用
 
 ### 1. 任何 OpenAI 兼容 API
@@ -305,13 +366,13 @@ pierce 在 DSH 里的实现用的是官方 `system-prompt/assemble` 钩子返回
 ## 开发
 
 ```bash
-# 单测（83 项）
+# 单测（159 项）
 node --test test/plugin.test.mjs
 
 # 宿主层 E2E（在干净安装 /opt/dsh-clean 上跑，13 项）
 PIERCE_E2E_DIR=/root/pierce-e2e node scripts/e2e-verify.mjs
 
-# 线上宿主自检（30 项：服务 / 源码层 / 配置层 YAML 0 差异 / 运行时真实请求体）
+# 线上宿主自检（35 项：服务 / 源码层 / 配置层 YAML 0 差异 / 运行时真实请求体）
 node scripts/post-restart-verify.mjs
 
 # 审批链路对称性（pierce 开 vs 关，6 项）
