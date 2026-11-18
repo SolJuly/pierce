@@ -178,6 +178,18 @@ function imageDataUrl(file) {
 	return `data:${media};base64,${fs.readFileSync(file).toString("base64")}`;
 }
 
+// 输出文件已存在就拒绝启动（--force 可覆盖）。
+//
+// 2026-11-18 踩过：两个 node 进程同时写同一个 --out（一个是被 kill 但进程没死的旧批次），
+// 互相覆盖，带原始回复的数据文件被冲掉，只能靠日志里的汇总表救回来。
+// 两个实例抢一个路径必须直接报错，而不是让它们悄悄覆盖。
+// 续跑（补齐未满 N 的格子）必须显式 --resume：这里读不清"已存在"是上次没跑完，
+// 还是有另一个进程正在写。让操作者自己声明意图，比猜安全。
+if (fs.existsSync(outPath) && !has("force") && !has("resume")) {
+	console.error(`batch-probe: ${outPath} 已存在。续跑加 --resume，重跑加 --force，或换一个 --out。`);
+	process.exit(2);
+}
+
 const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
 const results = fs.existsSync(outPath) ? JSON.parse(fs.readFileSync(outPath, "utf8")) : {};
 
