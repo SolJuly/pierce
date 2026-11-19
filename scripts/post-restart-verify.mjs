@@ -294,6 +294,10 @@ if (fs.existsSync(purgeYml)) {
   const live = fs.readFileSync(purgeYml, "utf8")
     .split("\n").filter((l) => !l.trim().startsWith("#")).join("\n");
   ok("purge bundle patch 不再引用 {{cwd}}", !live.includes("{{cwd}}"));
+} else {
+  // 2026-11-19 dsh-purge 已卸载。以前这条是静默消失的 —— 总数从 36 变 35，
+  // 看不出是"少了一项检查"还是"少了一项该跑的东西"。显式标出来。
+  skip("purge bundle patch 不再引用 {{cwd}}", "dsh-purge 已卸载");
 }
 
 // 命令是否真的注册进宿主的命令表。
@@ -329,7 +333,7 @@ if (fs.existsSync(liveScript)) {
 }
 
 // ── 汇总 ────────────────────────────────────────────────────
-console.log(`\n\x1b[1m═══ 重启后自检：${pass} 项通过${fails.length ? `，${fails.length} 项失败` : ""} ═══\x1b[0m`);
+console.log(`\n\x1b[1m═══ 重启后自检：${pass} 项通过${fails.length ? `，${fails.length} 项失败` : ""}${skipped ? `，${skipped} 项跳过` : ""} ═══\x1b[0m`);
 if (fails.length) {
   console.log("\n失败项：");
   for (const f of fails) console.log(`  - ${f}`);
