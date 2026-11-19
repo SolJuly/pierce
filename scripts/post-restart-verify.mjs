@@ -72,7 +72,9 @@ const walkBak = (dir) => {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
     const p = path.join(dir, e.name);
     if (e.isDirectory()) walkBak(p);
-    else if (e.name.endsWith(".dshpurge.bak")) leftoverBak.push(path.relative(MODULES, p));
+    // 原来只匹配 `.dshpurge.bak`，但实际残留叫 `.dsh-purge-local.bak` ——
+    // 后缀不同，这项检查一直报「0 个」在骗自己。改成任何备份后缀都算。
+    else if (/\.(dshpurge|dsh-purge[a-z-]*|pierce)\.bak$/.test(e.name) || /\.bak$/.test(e.name)) leftoverBak.push(path.relative(MODULES, p));
   }
 };
 walkBak(MODULES);
