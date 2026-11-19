@@ -24,7 +24,14 @@ const app = new Context();
 app.plugin(FakeSystemPrompt);
 
 const plugin = (await import("../lib/index.js")).default;
-app.plugin(plugin, { enabled: true, verbose: false });
+// allowToolGate / fsIntentFree 的默认值在 2026-11-19 改成 false（真宿主实测是空转），
+// 这里要测这两个 waterfall 就必须显式打开。
+app.plugin(plugin, {
+  enabled: true,
+  verbose: false,
+  allowToolGate: true,
+  fsIntentFree: true,
+});
 
 await new Promise((r) => setTimeout(r, 60));
 
