@@ -82,8 +82,11 @@ console.log("[2] 审批闸");
 
 console.log("[3] 工具门 ask→allow");
 {
+  // allowToolGate 的默认值在 2026-11-19 改成 false：真宿主五臂对照显示，
+  // 请求升级沙箱时起作用的是 approval 通道而不是这条，官方 base 里也没有
+  // 任何工具会返回 kind:"ask"。所以这里必须显式打开才测得到。
   const { ctx, handlers } = makeCtx();
-  plugin.apply(ctx, {});
+  plugin.apply(ctx, { allowToolGate: true });
   const h = handlers.get("tools/pre-execute");
   ok("挂了 tools/pre-execute", typeof h === "function");
   const allow = await h({}, async () => ({ kind: "allow" }));
@@ -93,12 +96,26 @@ console.log("[3] 工具门 ask→allow");
   ok("其余字段保留", ask.reason === "r" && Array.isArray(ask.options));
   const deny = await h({}, async () => ({ kind: "deny", reason: "hard" }));
   ok("deny 不动（工具的硬拒绝不替它放行）", deny.kind === "deny");
+
+  // 默认必须是不挂：留着空转的钩子会让人以为它在起作用
+  const plain = makeCtx();
+  plugin.apply(plain.ctx, {});
+  ok("默认不挂 tools/pre-execute（空转通道不注册）", plain.handlers.get("tools/pre-execute") === undefined);
 }
 
 console.log("[4] 文件系统观测闸");
 {
+  // fsIntentFree 的默认值在 2026-11-19 改成 false：
+  // fs-observation-policy 官方默认就是 disabled:true，没有闸可绕。
+  const plain = makeCtx();
+  plugin.apply(plain.ctx, {});
+  ok(
+    "默认不挂 fs 三闸（没闸可绕时不注册）",
+    ["fs/write-intent", "fs/edit-intent", "fs/delete-intent"].every((ev) => plain.handlers.get(ev) === undefined),
+  );
+
   const { ctx, handlers } = makeCtx();
-  plugin.apply(ctx, {});
+  plugin.apply(ctx, { fsIntentFree: true });
   for (const ev of ["fs/write-intent", "fs/edit-intent", "fs/delete-intent"]) {
     const h = handlers.get(ev);
     ok(`${ev} 已挂`, typeof h === "function");
@@ -190,7 +207,8 @@ console.log("[6] 总开关");
 }
 {
   const { ctx, handlers } = makeCtx();
-  plugin.apply(ctx, {});
+  // 这两个通道现在的默认值是 false，要测「运行期关掉后走回官方链路」就得先挂上
+  plugin.apply(ctx, { allowToolGate: true, fsIntentFree: true });
   ok("运行中切 off 返回 true", setEnabled(ctx, false) === true);
   ok("运行中切 off：审批不再放行", handlers.get("approval/request")({}, () => "rejected") === "rejected");
   ok("运行中切 off：工具门 ask 原样透传", (await handlers.get("tools/pre-execute")({}, async () => ({ kind: "ask" }))).kind === "ask");
@@ -464,7 +482,8 @@ console.log("[12] /pierce 命令 + 分通道运行期开关");
     return { ...base, registered, def: registered[0] };
   };
 
-  const c = makeCmdCtx({});
+  // 这段要同时测审批和工具门两个通道的运行期开关，所以两个都得显式打开
+  const c = makeCmdCtx({ allowToolGate: true });
   ok("注册了 pierce 命令", c.registered.length === 1);
   ok("命令名 = pierce", c.def?.name === "pierce");
   ok("有 input hint", typeof c.def?.input?.hint === "string" && c.def.input.hint.length > 0);
@@ -611,7 +630,7 @@ console.log("[14] web 通道管控：域名白/黑名单");
   const base = makeCtx();
   plugin.apply(base.ctx, { webGuard: { enabled: true, tools: ["web_fetch"], allow: ["*.ok.test"] } });
   const h = base.handlers.get("tools/pre-execute");
-  ok("挂了 tools/pre-execute（即便 allowToolGate 默认也开）", typeof h === "function");
+  ok("挂了 tools/pre-execute（因为 webGuard 打开，与 allowToolGate 无关）", typeof h === "function");
   const blocked = await h({ name: "web_fetch", arguments: { url: "https://evil.test/x" } }, async () => ({ kind: "ask" }));
   ok("白名单外被拒（而不是被降级成 allow）", blocked.kind === "deny" && /不在白名单/.test(blocked.reason));
   const passed = await h({ name: "web_fetch", arguments: { url: "https://a.ok.test/x" } }, async () => ({ kind: "ask" }));
