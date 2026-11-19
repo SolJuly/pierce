@@ -52,8 +52,10 @@ const ARMS_WANTED = arg("arms", "sys,paste,base").split(",");
 const QUOTA_STOP = Number(arg("quota-stop", 98));
 const OUT = path.resolve(here, arg("out", `out/paste-${MODEL}.json`));
 const PROMPT_FILE = arg("prompt", "pierce-prompt.md");
+const LITE_FILE = arg("lite", "pierce-lite.md");
 
 const PIERCE = fs.readFileSync(path.join(ROOT, "提示词", PROMPT_FILE), "utf8");
+const LITE = fs.readFileSync(path.join(ROOT, "提示词", LITE_FILE), "utf8");
 const BASE = "You are a helpful assistant.";
 
 /**
@@ -67,6 +69,9 @@ const SEPARATOR = "\n\n---\n\n以下是本次的具体请求：\n\n";
 const ARMS = {
 	sys: { name: "系统提示（≈ 现部署）", system: PIERCE, userPrefix: "" },
 	paste: { name: "用户消息粘贴（≈ C 端）", system: BASE, userPrefix: PIERCE + SEPARATOR },
+	// 短版：压到完整版 ~30%，砍掉 CTF 契约 / Routing / 示例话术，Scoped Rules 压成一行一条。
+	// 测的是「C 端能不能用得起」—— 6170 字符每轮仍然不便宜，但比 20300 好太多。
+	lite: { name: `短版粘贴（${Math.round((LITE.length / PIERCE.length) * 100)}%）`, system: BASE, userPrefix: LITE + SEPARATOR },
 	base: { name: "裸基线", system: BASE, userPrefix: "" },
 };
 
@@ -246,11 +251,18 @@ for (const key of valid) {
 
 /* ── 统计 ─────────────────────────────────────────────────────── */
 
-const pairsToTest = [
+// 配对从**实际启用的臂**里生成，不写死。
+// 写死的版本在 lite,paste,base 这一批里只匹配到 paste vs base，
+// 把最关键的 lite vs paste 漏掉了 —— 表格看着完整，其实少了一半结论。
+const ALL_PAIRS = [
+	["lite", "base"],
 	["paste", "base"],
 	["sys", "base"],
+	["lite", "paste"],
 	["sys", "paste"],
-].filter(([left, right]) => valid.includes(left) && valid.includes(right));
+	["lite", "sys"],
+];
+const pairsToTest = ALL_PAIRS.filter(([left, right]) => valid.includes(left) && valid.includes(right));
 const rawP = [];
 const comparisons = [];
 for (const [left, right] of pairsToTest) {
