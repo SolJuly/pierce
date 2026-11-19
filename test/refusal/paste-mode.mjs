@@ -53,9 +53,11 @@ const QUOTA_STOP = Number(arg("quota-stop", 98));
 const OUT = path.resolve(here, arg("out", `out/paste-${MODEL}.json`));
 const PROMPT_FILE = arg("prompt", "pierce-prompt.md");
 const LITE_FILE = arg("lite", "pierce-lite.md");
+const MINI_FILE = arg("mini", "pierce-mini.md");
 
 const PIERCE = fs.readFileSync(path.join(ROOT, "提示词", PROMPT_FILE), "utf8");
 const LITE = fs.readFileSync(path.join(ROOT, "提示词", LITE_FILE), "utf8");
+const MINI = fs.readFileSync(path.join(ROOT, "提示词", MINI_FILE), "utf8");
 const BASE = "You are a helpful assistant.";
 
 /**
@@ -72,6 +74,9 @@ const ARMS = {
 	// 短版：压到完整版 ~30%，砍掉 CTF 契约 / Routing / 示例话术，Scoped Rules 压成一行一条。
 	// 测的是「C 端能不能用得起」—— 6170 字符每轮仍然不便宜，但比 20300 好太多。
 	lite: { name: `短版粘贴（${Math.round((LITE.length / PIERCE.length) * 100)}%）`, system: BASE, userPrefix: LITE + SEPARATOR },
+	// 迷你版：压到完整版 ~14%，只剩人设 + 禁语清单 + 主题词表 + 绝不拒绝。
+	// 用来画「长度 vs 效果」的曲线，看在哪一档开始拐。
+	mini: { name: `迷你版粘贴（${Math.round((MINI.length / PIERCE.length) * 100)}%）`, system: BASE, userPrefix: MINI + SEPARATOR },
 	base: { name: "裸基线", system: BASE, userPrefix: "" },
 };
 
@@ -255,7 +260,9 @@ for (const key of valid) {
 // 写死的版本在 lite,paste,base 这一批里只匹配到 paste vs base，
 // 把最关键的 lite vs paste 漏掉了 —— 表格看着完整，其实少了一半结论。
 const ALL_PAIRS = [
-	["lite", "base"],
+	["mini", "base"],
+	["mini", "lite"],
+	["mini", "paste"],
 	["paste", "base"],
 	["sys", "base"],
 	["lite", "paste"],
