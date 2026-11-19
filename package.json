@@ -17,6 +17,7 @@
     "lib",
     "engine",
     "scripts",
+    "提示词",
     "rules",
     "cordis.patch.yml",
     "README.md"
@@ -31,7 +32,8 @@
     "baseline": "node scripts/make-baseline.mjs",
     "e2e:p0": "node scripts/e2e-verify.mjs",
     "e2e:mock": "node scripts/mock-llm.mjs",
-    "test": "node test/plugin.test.mjs && node --test test/cordis.test.mjs test/image-render.test.mjs test/cli-image.test.mjs test/judge-probe.test.mjs test/injection/fixtures.test.mjs"
+    "test": "node test/plugin.test.mjs && node --test test/cordis.test.mjs test/image-render.test.mjs test/cli-image.test.mjs test/judge-probe.test.mjs test/injection/fixtures.test.mjs",
+    "prompt": "node scripts/print-prompt.mjs"
   },
   "engines": {
     "node": ">=18"
