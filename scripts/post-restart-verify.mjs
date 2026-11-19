@@ -20,14 +20,21 @@ import { fileURLToPath } from "node:url";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const MODULES = "/usr/local/lib/nodejs/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai";
-const CLEAN = "/opt/dsh-clean/node_modules/@deepseek-ai";
+// 可覆盖：测试「基线过期」分支时指向一个假基线
+const CLEAN = process.env.PIERCE_CLEAN_MODULES || "/opt/dsh-clean/node_modules/@deepseek-ai";
 const E2E_DIR = process.env.PIERCE_E2E_DIR || path.join(os.homedir(), ".pierce-e2e");
 
 let pass = 0;
+let skipped = 0;
 const fails = [];
 const ok = (label, cond, detail = "") => {
   if (cond) { pass++; console.log(`  ✓ ${label}${detail ? `  — ${detail}` : ""}`); }
   else { fails.push(label); console.error(`  ✗ ${label}${detail ? `  — ${detail}` : ""}`); }
+};
+/** 跳过一项并说明原因。基线过期时那些「与官方一致」的检查只能跳过，不能算失败。 */
+const skip = (label, why) => {
+  skipped++;
+  console.log(`  ⊘ ${label}  — 跳过：${why}`);
 };
 const section = (t) => console.log(`\n\x1b[1m${t}\x1b[0m`);
 
@@ -43,6 +50,47 @@ ok("dsh.service 在跑", active === "active", active);
 const listening = sh("ss -tlnp 2>/dev/null | grep -c ':3080'").trim();
 ok("3080 端口在听", Number(listening) > 0, `匹配 ${listening} 条`);
 
+// ── 1b. 验证基线版本 ────────────────────────────────────────
+// 2026-11-19 宿主升到 0.2.2-rc.3，而 /opt/dsh-clean 还停在 rc.1 ——
+// 结果 7 项「必须与官方一致」的检查因为**版本差异**全部假失败，
+// 排查了半天才发现不是回归。这层检查就是为了不再重演。
+section("1b. 验证基线版本");
+/**
+ * 读出 dsh 包自己的版本号。
+ *
+ * 两侧目录布局不同，不能写死一个路径：
+ *   线上  …/dsh/node_modules/@deepseek-ai/*   → dsh 包在 MODULES 的上两级
+ *   基线  /opt/dsh-clean/node_modules/@deepseek-ai/* → dsh 包在 CLEAN/dsh
+ * 所以两个候选都试，再退一步往上找 name 为 @deepseek-ai/dsh 的 package.json。
+ */
+const versionOf = (dir) => {
+  const candidates = [path.join(dir, "dsh", "package.json"), path.resolve(dir, "..", "..", "package.json")];
+  for (const pj of candidates) {
+    if (!fs.existsSync(pj)) continue;
+    try {
+      const parsed = JSON.parse(fs.readFileSync(pj, "utf8"));
+      if (parsed.name === "@deepseek-ai/dsh" && typeof parsed.version === "string") return parsed.version;
+      if (pj === candidates[0] && typeof parsed.version === "string") return parsed.version;
+    } catch { /* 坏 json 就试下一个 */ }
+  }
+  return null;
+};
+const hostVersion = versionOf(MODULES);
+const cleanVersion = versionOf(CLEAN);
+const BASELINE_STALE = hostVersion !== null && cleanVersion !== null && hostVersion !== cleanVersion;
+ok(
+  "纯净基线版本与宿主一致",
+  !BASELINE_STALE,
+  BASELINE_STALE ? `基线 ${cleanVersion} ≠ 宿主 ${hostVersion}` : `${hostVersion ?? "?"}`,
+);
+if (BASELINE_STALE) {
+  console.error("");
+  console.error(`  ⚠ 基线过期：/opt/dsh-clean 是 ${cleanVersion}，宿主是 ${hostVersion}。`);
+  console.error("    下面所有「与官方一致」的检查都会因版本差异假失败，已跳过。先同步基线：");
+  console.error(`    cd /opt/dsh-clean && npm install @deepseek-ai/dsh@${hostVersion}`);
+  console.error("");
+}
+
 // ── 2. 源码层：撤补丁是否生效 ────────────────────────────────
 section("2. 源码层（关键项必须与官方一致）");
 const MUST_MATCH = [
@@ -57,6 +105,7 @@ const MUST_MATCH = [
   ["dsh-app-boot/lib/index.js", "overlay 缺失时回落 .dshpurge.bak 的兜底已撤"],
 ];
 for (const [rel, label] of MUST_MATCH) {
+  if (BASELINE_STALE) { skip(label, "基线版本不一致"); continue; }
   const a = path.join(CLEAN, rel);
   const b = path.join(MODULES, rel);
   const same = fs.existsSync(a) && fs.existsSync(b) && fs.readFileSync(a, "utf8") === fs.readFileSync(b, "utf8");
@@ -168,6 +217,8 @@ const pkgVersions = (root) => {
 };
 const cv = pkgVersions(CLEAN);
 const lv = pkgVersions(MODULES);
+if (BASELINE_STALE) skip("@deepseek-ai/* 版本 census", "基线版本不一致");
+else {
 const versionDrift = [...cv.keys()].filter((k) => lv.has(k) && cv.get(k) !== lv.get(k));
 ok(
   "@deepseek-ai/* 版本与纯净基线一致",
@@ -176,6 +227,7 @@ ok(
     ? `${cv.size} 个包全部同版本`
     : `版本漂移 ${versionDrift.length}：${versionDrift.slice(0, 5).map((k) => `${k} ${cv.get(k)}≠${lv.get(k)}`).join(", ")}`,
 );
+}
 
 // 排除 `dsh/` 这一支：那是宿主包本身，线上它的根是 MODULES 的父级的父级
 // （/usr/local/lib/nodejs/lib/node_modules/@deepseek-ai/dsh），并不在自己 node_modules 里，
@@ -191,7 +243,8 @@ const differing = cleanYaml.filter((f) => {
   const b = path.join(MODULES, f);
   return fs.existsSync(b) && fs.readFileSync(a, "utf8") !== fs.readFileSync(b, "utf8");
 });
-ok(
+if (BASELINE_STALE) skip("YAML 配置层 0 差异", "基线版本不一致");
+else ok(
   "YAML 配置层 0 差异",
   differing.length === 0 && onlyClean.length === 0 && onlyLive.length === 0,
   differing.length === 0 && onlyClean.length === 0 && onlyLive.length === 0
