@@ -1,0 +1,53 @@
+name: CI
+
+# 为什么现在才有 CI：
+# 之前很长一段时间源码里打着一批补丁，任何宿主升级都会让检查变红，
+# 而红的原因往往是"宿主版本变了"而不是"代码坏了"——那种红灯只会训练人忽略它。
+# 2026-11-19 宿主升级把源码补丁全部冲掉之后，仓库已经回到"纯插件 + 配置"的形态，
+# 红灯才重新有意义：红了就是真的坏了。
+#
+# 这套 CI **不装 DSH 宿主**：
+#   - 单元测试只依赖 @deepseek-ai/cordis 和 sharp
+#   - 需要宿主真实渲染行为的那批（test/injection）检测不到宿主会自己跳过
+#   - 端到端验证（scripts/e2e-verify.mjs 等）需要完整宿主 + 隔离 profile，不在这里跑
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: 装测试依赖
+        # cordis：真 cordis 生命周期测试要它
+        # sharp：图片渲染器那 37 项要它（装不上会自动跳过，不会假绿）
+        run: npm install --no-save --no-audit --no-fund @deepseek-ai/cordis@^4.0.1 sharp
+
+      - name: 语法检查
+        # 比 npm test 更快发现低级错误，且不依赖任何第三方包
+        run: |
+          for f in lib/*.js engine/*.mjs scripts/*.mjs test/*.mjs test/**/*.mjs; do
+            node --check "$f" || exit 1
+          done
+          echo "语法检查通过"
+
+      - name: 单元测试
+        run: npm test
+
+      - name: 确认跳过的用例数与原因
+        # 没有宿主时 injection 那 6 项会跳过。把跳过显式打出来，
+        # 免得以后有人把"跳过"看成"通过"。
+        if: always()
+        run: |
+          node --test test/injection/fixtures.test.mjs 2>&1 | grep -E '^ℹ (tests|pass|fail|skipped)' || true

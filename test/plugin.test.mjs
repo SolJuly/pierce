@@ -628,7 +628,9 @@ console.log("[14] web 通道管控：域名白/黑名单");
 
   // 集成：钩子层要能真的拦住，且拦住时不能被工具门放行覆盖
   const base = makeCtx();
-  plugin.apply(base.ctx, { webGuard: { enabled: true, tools: ["web_fetch"], allow: ["*.ok.test"] } });
+  // 这两条测的是 webGuard 与工具门的**交互**（deny 不能被降级成 allow、
+  // 白名单内交给工具门处理），所以工具门要显式打开 —— 它现在的默认值是 false。
+  plugin.apply(base.ctx, { allowToolGate: true, webGuard: { enabled: true, tools: ["web_fetch"], allow: ["*.ok.test"] } });
   const h = base.handlers.get("tools/pre-execute");
   ok("挂了 tools/pre-execute（因为 webGuard 打开，与 allowToolGate 无关）", typeof h === "function");
   const blocked = await h({ name: "web_fetch", arguments: { url: "https://evil.test/x" } }, async () => ({ kind: "ask" }));
@@ -647,7 +649,7 @@ console.log("[14] web 通道管控：域名白/黑名单");
       if (!deps.includes("commands")) return;
       cb({ effect: (fn) => { const d = fn(); b.effects.push(d); return d; }, commands: { register: (def) => { list.push(def); return () => {}; } } });
     };
-    plugin.apply(b.ctx, { webGuard: { enabled: true, tools: ["web_fetch"], allow: ["*.ok.test"] } });
+    plugin.apply(b.ctx, { allowToolGate: true, webGuard: { enabled: true, tools: ["web_fetch"], allow: ["*.ok.test"] } });
     return { ...b, def: list[0] };
   })();
   ok("webguard 通道点亮", /webguard=on/.test(reg.def.handler({ rawInput: "status" }).text));
