@@ -27,3 +27,6 @@ test/baseline/
 
 # 探针夹具与临时产物（体积大，可用 scripts/probe-image-channel.mjs 重新生成）
 tmp/
+
+# npm pack 产物（走 GitHub Release 附件，不进仓库）
+dist/
