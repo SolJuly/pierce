@@ -48,5 +48,13 @@
       "patch": "./cordis.patch.yml"
     }
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SolJuly/pierce.git"
+  },
+  "bugs": {
+    "url": "https://github.com/SolJuly/pierce/issues"
+  },
+  "homepage": "https://github.com/SolJuly/pierce#readme",
   "license": "MIT"
 }

@@ -66,12 +66,19 @@ A 全开 / B 只提示词（机械全关）/ C 全关 / D 只开审批放行 / E
 
 ## 安装：装完就能用
 
-```bash
-# 在 DSH 里（推荐，bundle 会带上 cordis.patch.yml 那一行插入）
-plugin_manager install_bundle dsh-pierce
+> 目前**还没发到 npm 注册表**，所以 `plugin_manager install_bundle dsh-pierce`
+> 和 `npm install dsh-pierce` 会 404。下面第一条是从 git 直装，现在就能用。
 
-# 或者手工装进某个 profile
-npm install -g dsh-pierce
+```bash
+# ① 从 git 直装（当前可用）
+npm install -g git+https://github.com/SolJuly/pierce.git
+
+# ② 或者 clone 下来本地 link，适合要改代码的
+git clone https://github.com/SolJuly/pierce.git
+cd pierce && npm install --no-save @deepseek-ai/cordis && npm link
+
+# ③ 上架 npm 之后（暂未上架）
+plugin_manager install_bundle dsh-pierce
 ```
 
 装完新建会话，模式列表里应当出现「破甲模式」。**装上没装上的判据是启动日志这一行**：
