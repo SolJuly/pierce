@@ -33,6 +33,7 @@ function makeCtx() {
   const handlers = new Map();
   const effects = [];
   const sections = [];
+  const injectedCalls = [];
   const ctx = {
     effect(fn) {
       const d = fn();
@@ -43,6 +44,17 @@ function makeCtx() {
       handlers.set(ev, fn);
       return () => handlers.delete(ev);
     },
+    // cordis 的「服务出现时再跑」edge。替身里立刻回调 —— 破甲用它补
+    // agent-preset 注册表迟到的那一次声明，测试要能走到这条路径。
+    inject(names, fn) {
+      injectedCalls.push(names);
+      // cordis 的语义：依赖的服务**都在**时才回调，且回调收到一个作用域 ctx。
+      // 替身里按同样的门闩走 —— 否则 ["commands"] 这类本宿主没转的依赖会被误触发，
+      // 测试就会卡在一个真实运行期根本不会进的路径上。
+      if (names.every((n) => ctx[n] !== undefined)) fn(ctx);
+      return () => {};
+    },
+    injectedCalls,
     systemPrompt: {
       section(s) {
         sections.push(s);
@@ -941,4 +953,39 @@ console.log("[18] 绕过手法的封堵（审核实测能通的写法）");
 
 process.env.DSH_HOME = prevHome ?? "";
 fs.rmSync(DSH_HOME_TMP, { recursive: true, force: true });
+// ── 破甲模式预设（预设定义随包分发，激活时注册）────────────────────
+// JSON 里的 persona.prefix 是占位符，注册时才换成正文全文 —— 这两步都得有测试，
+// 否则正文文件路径一变，预设会静默变成"persona 是 '@@PIERCE_PROMPT@@'"。
+{
+  const { buildPresetDeclaration } = await import("../lib/index.js");
+  const rows = JSON.parse(fs.readFileSync(new URL("../presets/pierce/plugins.json", import.meta.url), "utf8"));
+  const meta = JSON.parse(fs.readFileSync(new URL("../presets/pierce/preset.json", import.meta.url), "utf8"));
+  ok("plugins.json 是数组", Array.isArray(rows));
+  ok("plugins.json 行数与官方 standard 一致（23）", rows.length === 23);
+  const personaRow = rows.find((r) => r?.id === "persona");
+  ok("persona 用 complete:true（丢掉插件自己那段，避免双份注入）", personaRow?.config?.complete === true);
+  ok("源文件里 persona.prefix 是占位符", personaRow?.config?.prefix === "@@PIERCE_PROMPT@@");
+  ok("preset.json 有 name/description/order", ["name", "description", "order"].every((k) => meta[k] !== undefined));
+  // !!js 保留成注册器认识的形状，由宿主求值
+  const jsRows = rows.filter((r) => JSON.stringify(r).includes("__jsExpr"));
+  ok("!!js 表达式保留成 __jsExpr 交给注册器", jsRows.length >= 2 && jsRows.every((r) => r.disabled?.__jsExpr !== undefined || JSON.stringify(r.config ?? {}).includes("__jsExpr")));
+  // 平台判断那个必须在 disabled 上：宿主按它决定挂 bash 还是 pwsh
+  const bashRow = rows.find((r) => r?.id === "tool-bash");
+  ok("平台判断落在 disabled 上（bash 在非 Windows 才挂）", bashRow?.disabled?.__jsExpr?.includes("win32") === true);
+
+  const decl = buildPresetDeclaration({ promptFile: "/root/破甲开发/提示词/pierce-prompt.md" });
+  ok("声明 id 是 pierce", decl.id === "pierce");
+  const builtPersona = decl.plugins.find((r) => r?.id === "persona");
+  ok("注册时占位符换成了正文", !builtPersona.config.prefix.includes("@@PIERCE_PROMPT@@"));
+  ok("正文长度 > 15000", builtPersona.config.prefix.length > 15000);
+  // 正文为空时不注册：宁可没有这个模式，也不要给一个 persona 是占位符的预设
+  let threw = false;
+  try {
+    buildPresetDeclaration({ promptFile: "/nonexistent/pierce-prompt.md" });
+  } catch {
+    threw = true;
+  }
+  ok("正文读不到时抛错（不注册残缺预设）", threw);
+}
+
 console.log(`\n通过 ${pass} 项`);

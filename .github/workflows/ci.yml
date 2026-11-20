@@ -51,3 +51,6 @@ jobs:
         if: always()
         run: |
           node --test test/injection/fixtures.test.mjs 2>&1 | grep -E '^ℹ (tests|pass|fail|skipped)' || true
+
+      - name: 预设定义与官方 standard 同步
+        run: node scripts/gen-pierce-preset.mjs --check

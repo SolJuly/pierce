@@ -261,17 +261,6 @@ ok("pierce 在配置树里", dump.includes("dsh-pierce") || dump.includes("id: p
 // 否则新会话会退回 workspace-write —— 那是行为变化，不是清理补丁的预期结果。
 ok("defaultPreset = danger-full-access", /defaultPreset:\s*danger-full-access/.test(dump));
 
-// 破甲模式预设：声明在 profile 层（scripts/gen-pierce-preset.mjs 生成）。
-// persona 带 complete:true 把破甲正文当成整个系统提示，插件注入的 pierce:body 会被丢弃
-// —— 所以两种会话不叠加。这里断言声明还在、persona 确实是 complete:true；
-// 真实装配由 verify-live-source 那 10 项覆盖。
-const piercePresetBlock =
-  /- id: preset-pierce\n[\s\S]{0,12000}?(?=\n- id:|\n# ==|$)/.exec(dump)?.[0] ?? "";
-ok(
-  "破甲模式预设 preset-pierce 已声明",
-  piercePresetBlock.length > 0 && /complete: true/.test(piercePresetBlock),
-  piercePresetBlock ? "persona complete:true" : "不在配置树里",
-);
 
 // minimal preset 必须停用。
 // 它的 persona 段带 complete: true，而 dsh-system-prompt 在 waterfall 之后
@@ -325,6 +314,20 @@ const journalSince = (() => {
 })();
 const jlog = journalSince ? sh(`journalctl -u dsh --since "${journalSince}" --no-pager 2>/dev/null`) : "";
 ok("pierce 启动横幅可见", /\[pierce\] 已挂 \d+ 个扩展点/.test(jlog), (/\[pierce\] 已挂[^\n]*/.exec(jlog)?.[0] ?? "").slice(0, 70));
+
+// 破甲模式预设：现在由**插件自己**在激活时注册（不再写进 profile 的配置树），
+// 所以 dump 里看不到 —— 断言改成读启动日志那一行。
+//
+// 它踩过一个真实的坑：agent-preset 注册表 inject 了 loader / sessionProjections，
+// 依赖链比插件长，插件的激活**落在注册表挂载之前**，第一次声明会静默丢掉
+// （症状是"预设列表里没有，动一下配置开关它就出现了"）。破甲用 ctx.inject 补跑。
+// 所以这里除了断言"注册成功"，还断言"迟到补跑出现了"—— 那是这条路径真的被走到的证据。
+const piercePresetLog = /\[pierce\] 破甲模式预设已注册（(\d+) 行，persona 带 (\d+) 字符正文）/.exec(jlog);
+ok(
+  "破甲模式预设已注册（插件自带，无需改 profile）",
+  piercePresetLog !== null && Number(piercePresetLog[2]) > 15000,
+  piercePresetLog ? `${piercePresetLog[1]} 行 / 正文 ${piercePresetLog[2]} 字符` : "日志里没有注册成功那行",
+);
 ok(
   "/pierce 命令已注册进宿主",
   /\[pierce\] \/pierce 命令已注册/.test(jlog),

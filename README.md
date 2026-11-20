@@ -152,6 +152,49 @@ pierce 挂的是**宿主官方扩展点**：
 
 宿主升级只要扩展点不删就不用重锚。
 
+## 破甲模式：一个可选的 agent preset
+
+装了插件就自带一个 `pierce` 预设，新建会话时可选。**不需要改 profile。**
+
+它把破甲正文当成**整个**系统提示（`complete: true`），工具集与标准模式完全一致。
+
+### 为什么不会双份注入
+
+`complete: true` 会丢弃所有 section，包括插件自己注入的 `pierce:body` 段。所以：
+
+| 会话类型 | 正文从哪来 |
+|---|---|
+| 破甲模式（`pierce` 预设） | persona（预设里那份） |
+| 标准模式 | 插件注入的那段 |
+
+两者不叠加。插件的其它通道（审批放行 / webGuard / 身份清洗）在两种会话里都照常生效。
+
+**代价**：`complete: true` 同时丢弃了宿主的工具使用提示（"Read a file before overwriting"、"Check the [exit code: N] marker" 之类）。破甲模式里模型只有这段正文 + 工具 schema 本身的描述。跟官方 `minimal` 预设是同一种取舍。
+
+### 定义从哪来
+
+`presets/pierce/{preset.json,plugins.json}` 随包分发，由 `scripts/gen-pierce-preset.mjs`
+**从官方 `preset-standard` 派生**——原样搬它的 plugins 数组，只把 `persona` 那一行换掉。
+手抄一份会在宿主升级时悄悄漂掉，所以 CI 里有一道 `--check`：产物和官方不同步就红。
+
+`!!js` 表达式（平台判断 / skills 路径 / profileContext）保留成 `{"__jsExpr": "..."}`
+交给宿主求值——破甲自己不需要会算 `!!js`。
+
+### 一个真实的坑
+
+`agent-presets` 注册表 inject 了 `loader` / `sessionProjections`，**依赖链比插件长**，
+所以插件的激活经常落在注册表挂载之前，第一次声明会静默丢掉
+（症状：预设列表里没有，动一下别的配置开关它就出现了）。
+
+破甲用 `ctx.inject(["agentPresets"], ...)` 补一次。启动日志里能看到这两行：
+
+```
+[pierce] 破甲模式预设：激活时注册表还没挂，等它出现再补一次
+[pierce] 破甲模式预设已注册（23 行，persona 带 20299 字符正文）
+```
+
+第二行只在补跑成功后才出现，所以自检断言的就是它。
+
 ## 配置
 
 ```yaml

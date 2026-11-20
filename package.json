@@ -18,6 +18,7 @@
     "engine",
     "scripts",
     "提示词",
+    "presets",
     "rules",
     "cordis.patch.yml",
     "README.md"
