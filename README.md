@@ -64,6 +64,39 @@ A 全开 / B 只提示词（机械全关）/ C 全关 / D 只开审批放行 / E
 **没有 `autoGrantApproval` 就什么都跑不起来，那 2 万字一个字都救不了**。
 在 Web GUI 里你能点审批，所以它只是省一次点击。
 
+## 安装：装完就能用
+
+```bash
+# 在 DSH 里（推荐，bundle 会带上 cordis.patch.yml 那一行插入）
+plugin_manager install_bundle dsh-pierce
+
+# 或者手工装进某个 profile
+npm install -g dsh-pierce
+```
+
+装完新建会话，模式列表里应当出现「破甲模式」。**装上没装上的判据是启动日志这一行**：
+
+```
+[pierce] 破甲模式预设已注册（23 行，persona 带 20299 字符正文）
+```
+
+没有这一行就是没注册上，别往下猜。
+
+### 正文从哪来（不用你管）
+
+`promptFile` 默认是 `prompt-inject.md`，解析顺序固定两段：
+
+| 顺序 | 路径 | 谁放 |
+|---|---|---|
+| 1 | `$DSH_HOME/prompt-inject.md`（或 `promptFile` 配的绝对路径） | 想覆盖正文的操作者 |
+| 2 | 包内 `提示词/pierce-prompt.md`（随 tarball 分发） | 默认，不用动 |
+
+两处都读不到才算没有正文 —— 那时预设不注册、prompt 通道空转，只有 `console.warn`。
+所以 `npm run check:bundle` 专门测这一段：临时造一个空 `$DSH_HOME`，要求预设仍能注册。
+
+想换正文就在 `~/.dsh/prompt-inject.md` 放一份，**下一轮就生效，不用重启**（每轮重读）。
+显式把 `promptFile` 配成 `""` 表示「不要正文」，那时不兜底。
+
 ## C 端用法：粘到哪里都能用
 
 不需要装插件，不需要 API key。把提示词当成一段文本，粘进任意聊天框。
@@ -603,4 +636,4 @@ P0 验证过：在干净安装上它们正常工作，12/12 通过。
 
 ## License
 
-MIT
+MIT —— 见 [LICENSE](LICENSE)。
