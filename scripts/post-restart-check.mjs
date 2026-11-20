@@ -15,6 +15,8 @@
  */
 import { execSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 const E2E_DIR = process.env.PIERCE_E2E_DIR || path.join(os.homedir(), ".pierce-e2e");
 const OUT = path.join(E2E_DIR, "logs/post-restart.json");

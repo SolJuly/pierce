@@ -15,7 +15,7 @@ import plugin, {
   setEnabled, isEnabled, chan, CHANNEL_NAMES,
   hostOfWebTarget, hostMatchesPattern, webVerdict,
   checkWebTarget, checkWebTargetResolved, validateGuardConfig, ipv4InCidr, ipv6InCidr, parseIPv6,
-  __setTrustedInstructionFilesForTest,
+  __setTrustedInstructionFilesForTest, promptCandidates,
 } from "../lib/index.js";
 
 let pass = 0;
@@ -978,14 +978,41 @@ fs.rmSync(DSH_HOME_TMP, { recursive: true, force: true });
   const builtPersona = decl.plugins.find((r) => r?.id === "persona");
   ok("注册时占位符换成了正文", !builtPersona.config.prefix.includes("@@PIERCE_PROMPT@@"));
   ok("正文长度 > 15000", builtPersona.config.prefix.length > 15000);
-  // 正文为空时不注册：宁可没有这个模式，也不要给一个 persona 是占位符的预设
-  let threw = false;
-  try {
-    buildPresetDeclaration({ promptFile: "/nonexistent/pierce-prompt.md" });
-  } catch {
-    threw = true;
+
+  // ── 包内兜底：装完就得有正文 ──────────────────────────────────
+  // 正文随包分发，用户目录里没放 prompt-inject.md 时直接读包内那份。
+  // 这条断了，新用户装完得到的是「会放审批的空壳」——预设不注册、prompt 通道空转。
+  {
+    const emptyHome = fs.mkdtempSync(path.join(os.tmpdir(), "pierce-empty-home-"));
+    const savedHome = process.env.DSH_HOME;
+    process.env.DSH_HOME = emptyHome;
+    try {
+      const cand = promptCandidates({ promptFile: "prompt-inject.md" });
+      ok("候选路径是「用户文件 → 包内」两段", cand.length === 2 && cand[0] === path.join(emptyHome, "prompt-inject.md") && cand[1].endsWith("提示词/pierce-prompt.md"));
+      const fromBundle = buildPresetDeclaration({ promptFile: "prompt-inject.md" });
+      const bundlePersona = fromBundle.plugins.find((r) => r?.id === "persona");
+      ok("用户目录空 → 落包内正文，预设照常注册", !bundlePersona.config.prefix.includes("@@PIERCE_PROMPT@@") && bundlePersona.config.prefix.length > 15000);
+      ok("包内兜底与显式绝对路径读到的正文一致", bundlePersona.config.prefix === builtPersona.config.prefix);
+
+      // 用户文件优先：放一份小正文，应该盖掉包内那份
+      fs.writeFileSync(path.join(emptyHome, "prompt-inject.md"), "用户覆盖正文\n");
+      const overridden = buildPresetDeclaration({ promptFile: "prompt-inject.md" });
+      ok("用户文件优先于包内", overridden.plugins.find((r) => r?.id === "persona").config.prefix === "用户覆盖正文");
+
+      // 显式 "" = 不要正文，这时不兜底
+      ok("promptFile 为空串时候选为空（不兜底）", promptCandidates({ promptFile: "" }).length === 0);
+      let emptyThrew = false;
+      try {
+        buildPresetDeclaration({ promptFile: "" });
+      } catch {
+        emptyThrew = true;
+      }
+      ok("正文显式置空时抛错（不注册残缺预设）", emptyThrew);
+    } finally {
+      process.env.DSH_HOME = savedHome ?? "";
+      fs.rmSync(emptyHome, { recursive: true, force: true });
+    }
   }
-  ok("正文读不到时抛错（不注册残缺预设）", threw);
 }
 
 console.log(`\n通过 ${pass} 项`);

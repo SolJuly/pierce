@@ -54,3 +54,8 @@ jobs:
 
       - name: 预设定义与官方 standard 同步
         run: node scripts/gen-pierce-preset.mjs --check
+
+      - name: 分发自检（空 $DSH_HOME 下正文能落包内）
+        # 正文读不到时预设静默不注册、prompt 通道静默空转，两处都不报错。
+        # 这条把「新机器装完直接能用」单独钉住，免得改动 promptFile 解析时悄悄哑掉。
+        run: node scripts/check-bundle-prompt.mjs
